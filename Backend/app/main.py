@@ -1,117 +1,151 @@
 """
-AI Legacy Modernization Copilot - Main FastAPI Application
+Main FastAPI application entry point.
+
+This module initializes the FastAPI application with:
+- CORS middleware
+- Error handling middleware
+- Logging middleware
+- API routers
+- Health check endpoints
+- Application lifecycle events
 """
+
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import logging
 
 from app.config.settings import get_settings
-from app.middleware.error_handler import error_handler_middleware
-from app.middleware.logging_middleware import logging_middleware
-from app.api.v1 import upload, analyze, jobs, query, report
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+from app.middleware.error_handler import register_exception_handlers
+from app.middleware.logging_middleware import (
+    LoggingMiddleware,
+    RequestIDMiddleware,
+    setup_logging,
 )
-logger = logging.getLogger(__name__)
 
-# Get settings
 settings = get_settings()
 
-# Create FastAPI app
+# Setup logging
+setup_logging(log_level=settings.log_level, log_format="text")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events."""
+    # Startup
+    logger.info("Starting AI Legacy Modernization Copilot Backend...")
+    logger.info(f"Environment: {settings.environment}")
+    logger.info(f"Database: {settings.database_url.split('@')[-1] if '@' in settings.database_url else 'SQLite'}")
+    logger.info(f"API: http://{settings.api_host}:{settings.api_port}")
+    logger.info(f"Docs: http://{settings.api_host}:{settings.api_port}/docs")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down AI Legacy Modernization Copilot Backend...")
+
+
+# Create FastAPI application
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="AI-powered legacy code modernization platform with LangGraph and MCP",
+    lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-# Add CORS middleware
+# Register exception handlers
+register_exception_handlers(app)
+
+# Add middleware (order matters - last added is executed first)
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(RequestIDMiddleware)
+
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Add custom middleware
-app.middleware("http")(error_handler_middleware)
-app.middleware("http")(logging_middleware)
-
 # Include API routers
-app.include_router(upload.router, prefix=settings.api_prefix, tags=["Upload"])
-app.include_router(analyze.router, prefix=settings.api_prefix, tags=["Analysis"])
-app.include_router(jobs.router, prefix=settings.api_prefix, tags=["Jobs"])
-app.include_router(query.router, prefix=settings.api_prefix, tags=["Query"])
-app.include_router(report.router, prefix=settings.api_prefix, tags=["Report"])
+from app.api.v1 import analyze, jobs, query, report, upload
+
+app.include_router(upload.router, prefix="/api/v1", tags=["Upload"])
+app.include_router(analyze.router, prefix="/api/v1", tags=["Analysis"])
+app.include_router(jobs.router, prefix="/api/v1", tags=["Jobs"])
+app.include_router(query.router, prefix="/api/v1", tags=["Query"])
+app.include_router(report.router, prefix="/api/v1", tags=["Report"])
 
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint with API information."""
     return {
         "message": "AI Legacy Modernization Copilot API",
         "version": settings.app_version,
+        "environment": settings.environment,
         "docs": "/docs",
-        "health": f"{settings.api_prefix}/health"
+        "redoc": "/redoc",
+        "health": "/health",
+        "status": "/status",
     }
 
 
-@app.get(f"{settings.api_prefix}/health")
+@app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint for load balancers and monitoring."""
     return {
         "status": "healthy",
-        "environment": settings.environment,
-        "version": settings.app_version
+        "service": settings.app_name,
+        "version": settings.app_version,
     }
 
 
-@app.get(f"{settings.api_prefix}/status")
+@app.get("/status")
 async def status_check():
-    """Detailed status check including LLM providers and MCP"""
-    # TODO: Add actual health checks for dependencies
+    """
+    Detailed status endpoint with component health checks.
+    
+    TODO: Add actual health checks for:
+    - Database connectivity
+    - Redis connectivity
+    - MCP server connectivity
+    - LLM provider availability
+    """
     return {
-        "api": "operational",
-        "database": "operational",
-        "redis": "operational",
-        "llm_providers": {
-            "primary": "operational",
-            "groq": "operational",
-            "rule_based": "operational"
+        "status": "operational",
+        "service": settings.app_name,
+        "version": settings.app_version,
+        "environment": settings.environment,
+        "components": {
+            "api": "healthy",
+            "database": "unknown",  # TODO: Add actual database check
+            "redis": "unknown",  # TODO: Add actual Redis check
+            "mcp": "unknown",  # TODO: Add actual MCP check
+            "llm_providers": {
+                "primary": "unknown",  # TODO: Add actual LLM check
+                "groq": "unknown",
+                "rule_based": "available",
+            },
         },
-        "mcp_server": "operational"
     }
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Application startup event"""
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
-    logger.info(f"Environment: {settings.environment}")
-    logger.info(f"Debug mode: {settings.debug}")
-    # TODO: Initialize database connections, Redis, MCP client
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown event"""
-    logger.info("Shutting down application")
-    # TODO: Close database connections, Redis, MCP client
 
 
 if __name__ == "__main__":
     import uvicorn
+    
     uvicorn.run(
         "app.main:app",
         host=settings.api_host,
         port=settings.api_port,
-        reload=settings.debug
+        reload=settings.environment == "development",
+        log_level=settings.log_level.lower(),
     )
 
 # Made with Bob
