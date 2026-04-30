@@ -1,11 +1,11 @@
-# Core Framework
+# Core FastAPI and Web Framework
 fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
+uvicorn[standard]>=0.31.1
+python-multipart>=0.0.9
 
-# Pydantic
-pydantic==2.5.3
-pydantic-settings==2.1.0
+# Pydantic for data validation and settings
+pydantic>=2.11.0
+pydantic-settings>=2.5.2
 
 # Database
 sqlalchemy==2.0.25
@@ -14,11 +14,11 @@ asyncpg==0.29.0
 aiosqlite==0.19.0
 psycopg2-binary==2.9.9
 
-# Redis
+# Redis for caching and job queue
 redis==5.0.1
 aioredis==2.0.1
 
-# LangGraph & LangChain
+# LangGraph and LangChain for AI orchestration
 langgraph==0.0.20
 langchain==0.1.0
 langchain-core==0.1.10
@@ -27,41 +27,41 @@ langchain-anthropic==0.0.1
 langchain-groq==0.0.1
 
 # LLM Providers
-openai==1.10.0
-anthropic==0.8.1
-groq==0.4.1
+openai>=1.10.0
+anthropic>=0.8.1
+groq>=0.4.1
 
-# MCP
-mcp==0.9.0
+# MCP (Model Context Protocol) for solution storage
+mcp==1.27.0
 
-# Parsers
+# Code parsing and analysis
 tree-sitter==0.20.4
-tree-sitter-java==0.20.2
+tree-sitter-java==0.23.5
 javalang==0.13.0
 
-# Utilities
+# Configuration and environment
 python-dotenv==1.0.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-dateutil==2.8.2
 pytz==2023.3
 
-# File Handling
+# File handling and utilities
 aiofiles==23.2.1
 python-magic==0.4.27
 gitpython==3.1.41
 
-# Report Generation
+# Report generation
 markdown==3.5.1
 jinja2==3.1.3
 weasyprint==60.2
 reportlab==4.0.9
 
-# HTTP Client
-httpx==0.26.0
+# HTTP clients
+httpx>=0.27.1
 aiohttp==3.9.1
 
-# Validation & Serialization
+# Validation and serialization
 email-validator==2.1.0
 orjson==3.9.12
 
@@ -69,9 +69,8 @@ orjson==3.9.12
 pytest==7.4.4
 pytest-asyncio==0.23.3
 pytest-cov==4.1.0
-httpx==0.26.0
 
-# Development
+# Code quality
 black==23.12.1
 flake8==7.0.0
 mypy==1.8.0
