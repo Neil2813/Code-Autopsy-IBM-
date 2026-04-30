@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16.3
+    container_name: legacy-copilot-db
+    environment:
+      POSTGRES_USER: kai
+      POSTGRES_PASSWORD: dog8code
+      POSTGRES_DB: legacy_copilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache and Queue
+  redis:
+    image: redis:7-alpine
+    container_name: legacy-copilot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legacy-copilot-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://kai:dog8code@postgres:5432/legacy_copilot
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_DB_DSN=postgresql://kai:dog8code@postgres:5432/mcp_solutions
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+      - ./temp:/app/temp
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Background Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legacy-copilot-worker
+    command: python scripts/run_worker.py
+    environment:
+      - DATABASE_URL=postgresql://kai:dog8code@postgres:5432/legacy_copilot
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_DB_DSN=postgresql://kai:dog8code@postgres:5432/mcp_solutions
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+      - ./temp:/app/temp
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# Made with Bob
