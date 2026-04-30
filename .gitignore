@@ -1,0 +1,91 @@
+# Keep only Backend/ and Frontend/ folders
+# Exclude everything else at root level
+
+# Exclude all files and folders at root
+/*
+
+# But keep these directories
+!Backend/
+!Frontend/
+
+# Keep .gitignore itself
+!.gitignore
+
+# Standard Python ignores for Backend/
+Backend/__pycache__/
+Backend/**/__pycache__/
+Backend/*.py[cod]
+Backend/**/*.py[cod]
+Backend/*$py.class
+Backend/**/*$py.class
+
+# Virtual environments
+Backend/venv/
+Backend/env/
+Backend/.venv/
+Backend/.env
+
+# IDE
+Backend/.vscode/
+Backend/.idea/
+Backend/**/.vscode/
+Backend/**/.idea/
+
+# Database
+Backend/*.db
+Backend/*.sqlite
+Backend/*.sqlite3
+
+# Logs
+Backend/logs/
+Backend/**/*.log
+
+# Uploads and temp files
+Backend/uploads/
+Backend/temp/
+Backend/cache/
+
+# Distribution / packaging
+Backend/dist/
+Backend/build/
+Backend/*.egg-info/
+Backend/.eggs/
+
+# Testing
+Backend/.pytest_cache/
+Backend/.coverage
+Backend/htmlcov/
+Backend/.tox/
+
+# MyPy
+Backend/.mypy_cache/
+Backend/.dmypy.json
+
+# Alembic
+Backend/alembic/versions/*.pyc
+
+# MCP Server
+Backend/mcp_server/*.db
+Backend/mcp_server/__pycache__/
+
+# Frontend ignores
+Frontend/node_modules/
+Frontend/dist/
+Frontend/build/
+Frontend/.next/
+Frontend/.nuxt/
+Frontend/.cache/
+Frontend/.env
+Frontend/.env.local
+Frontend/.DS_Store
+Frontend/**/.DS_Store
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Exclude reference folders (kai-main, etc.)
+kai-main/
+samples/
+examples/
