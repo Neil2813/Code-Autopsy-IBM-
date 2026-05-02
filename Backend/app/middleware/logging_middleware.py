@@ -9,15 +9,84 @@ This module provides:
 """
 
 import logging
+import logging.config
 import time
 import uuid
-from typing import Callable
+import json
+from typing import Callable, Any, Dict
+from datetime import datetime
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
+
+
+class JSONFormatter(logging.Formatter):
+    """Custom JSON formatter for structured logging."""
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON."""
+        log_data: Dict[str, Any] = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        
+        # Add correlation_id and request_id if available
+        correlation_id = getattr(record, "correlation_id", None)
+        if correlation_id:
+            log_data["correlation_id"] = correlation_id
+        
+        request_id = getattr(record, "request_id", None)
+        if request_id:
+            log_data["request_id"] = request_id
+        
+        # Add extra fields using getattr to avoid type checker warnings
+        method = getattr(record, "method", None)
+        if method:
+            log_data["method"] = method
+        
+        path = getattr(record, "path", None)
+        if path:
+            log_data["path"] = path
+        
+        status_code = getattr(record, "status_code", None)
+        if status_code:
+            log_data["status_code"] = status_code
+        
+        process_time = getattr(record, "process_time", None)
+        if process_time:
+            log_data["process_time"] = process_time
+        
+        client_host = getattr(record, "client_host", None)
+        if client_host:
+            log_data["client_host"] = client_host
+        
+        user_agent = getattr(record, "user_agent", None)
+        if user_agent:
+            log_data["user_agent"] = user_agent
+        
+        error_code = getattr(record, "error_code", None)
+        if error_code:
+            log_data["error_code"] = error_code
+        
+        exception_type = getattr(record, "exception_type", None)
+        if exception_type:
+            log_data["exception_type"] = exception_type
+        
+        # Add exception info if present
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+        
+        # Add traceback if available
+        traceback_info = getattr(record, "traceback", None)
+        if traceback_info:
+            log_data["traceback"] = traceback_info
+        
+        return json.dumps(log_data)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -52,16 +121,19 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception as exc:
-            # Log exception
+            # Log exception with correlation_id and request_id
             process_time = time.time() - start_time
+            request_id = getattr(request.state, "request_id", None)
             logger.error(
                 f"Request failed: {request.method} {request.url.path}",
                 extra={
                     "correlation_id": correlation_id,
+                    "request_id": request_id,
                     "method": request.method,
                     "path": request.url.path,
                     "process_time": f"{process_time:.3f}s",
                     "exception": str(exc),
+                    "exception_type": type(exc).__name__,
                 },
                 exc_info=True,
             )
@@ -74,13 +146,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         response.headers["X-Correlation-ID"] = correlation_id
         response.headers["X-Process-Time"] = f"{process_time:.3f}s"
 
-        # Log response
+        # Log response with request_id
+        request_id = getattr(request.state, "request_id", None)
         log_level = logging.INFO if response.status_code < 400 else logging.WARNING
         logger.log(
             log_level,
             f"Request completed: {request.method} {request.url.path} - {response.status_code}",
             extra={
                 "correlation_id": correlation_id,
+                "request_id": request_id,
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": response.status_code,
@@ -93,7 +167,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
 def setup_logging(log_level: str = "INFO", log_format: str = "json"):
     """
-    Configure application logging.
+    Configure application logging with structured JSON output support.
 
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -102,12 +176,28 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json"):
     # Set log level
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 
-    # Configure root logger
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    # Choose formatter based on format type
+    if log_format == "json":
+        formatter = JSONFormatter()
+    else:
+        formatter = logging.Formatter(
+            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+
+    # Configure root logger with handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Add console handler with chosen formatter
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(numeric_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
 
     # Configure specific loggers
     loggers = [

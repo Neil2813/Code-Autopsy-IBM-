@@ -33,36 +33,64 @@ Keep the explanation practical and focused on understanding the code's behavior.
     
     @staticmethod
     def analyze_risks(
+        file_path: str,
         code: str,
         language: str,
         detected_risks: List[Dict[str, Any]]
     ) -> str:
-        """Generate prompt for risk analysis."""
+        """Generate prompt for deep risk analysis with specific locations."""
         risks_summary = "\n".join([
-            f"- {risk.get('title', 'Unknown')}: {risk.get('description', '')}"
+            f"- Line {risk.get('line_start', '?')}: {risk.get('title', 'Unknown')} [{risk.get('severity', 'unknown')}]"
             for risk in detected_risks[:5]
-        ])
+        ]) if detected_risks else "No static analysis risks detected yet"
         
-        return f"""You are a security and code quality expert analyzing legacy code.
+        # Count lines for validation
+        line_count = code.count('\n') + 1
+        
+        return f"""You are a code analysis engine. Return ONLY valid JSON matching the exact schema below.
 
-Language: {language}
+FILE: {file_path}
+LANGUAGE: {language}
+LINES: 1-{line_count}
 
-Detected Issues (from static analysis):
+STATIC ANALYSIS FINDINGS:
 {risks_summary}
 
-Code:
+CODE:
 ```{language}
-{code[:1000]}...
+{code[:2000]}{"..." if len(code) > 2000 else ""}
 ```
 
-Please analyze and provide:
-1. Severity assessment of detected issues
-2. Additional risks not caught by static analysis
-3. Security vulnerabilities
-4. Maintainability concerns
-5. Technical debt indicators
+REQUIRED JSON SCHEMA (return ONLY this, no markdown, no explanations):
+{{
+  "summary": "string: 1-2 sentence summary of code quality",
+  "overall_severity": "critical|high|medium|low",
+  "issues": [
+    {{
+      "title": "string: Specific issue (e.g., 'SQL Injection in login query')",
+      "description": "string: What is wrong and impact",
+      "severity": "critical|high|medium|low",
+      "category": "security|logic_bug|performance|maintainability|architecture",
+      "file_path": "{file_path}",
+      "line_start": "integer: actual line number (1-{line_count})",
+      "line_end": "integer: actual line number (1-{line_count})",
+      "code_snippet": "string: exact code from those lines",
+      "recommendation": "string: Specific action (e.g., 'Use parameterized queries')",
+      "confidence": "float: 0.0-1.0"
+    }}
+  ],
+  "what_to_fix_first": ["string: Top 3 actionable priorities"]
+}}
 
-Focus on actionable insights."""
+STRICT RULES:
+1. line_start and line_end MUST be integers between 1 and {line_count}
+2. severity MUST be exactly: "critical", "high", "medium", or "low"
+3. category MUST be exactly one of: "security", "logic_bug", "performance", "maintainability", "architecture"
+4. code_snippet MUST be actual code from the file, not paraphrased
+5. recommendation MUST be actionable (e.g., "Replace X with Y", not "improve code")
+6. confidence MUST be a float between 0.0 and 1.0
+7. NO markdown formatting, NO explanatory text, ONLY the JSON object
+8. If no issues found, return empty issues array: {{"summary": "No significant issues", "overall_severity": "low", "issues": [], "what_to_fix_first": []}}"""
     
     @staticmethod
     def generate_modernization_suggestions(
@@ -72,27 +100,53 @@ Focus on actionable insights."""
         risks: List[Dict[str, Any]]
     ) -> str:
         """Generate prompt for modernization suggestions."""
-        return f"""You are a modernization architect helping migrate legacy systems.
+        risk_count = len(risks)
+        high_severity_count = sum(1 for r in risks if r.get('severity') in ['critical', 'high'])
+        
+        return f"""You are a modernization architect. Return ONLY valid JSON matching the exact schema below.
 
-Language: {language}
-Architecture: {architecture_summary}
+LANGUAGE: {language}
+ARCHITECTURE: {architecture_summary}
+RISKS: {risk_count} total ({high_severity_count} high/critical)
 
-Current Issues:
-{len(risks)} risks detected including security, complexity, and maintainability concerns.
-
-Code Sample:
+CODE SAMPLE:
 ```{language}
-{code[:1000]}...
+{code[:1500]}{"..." if len(code) > 1500 else ""}
 ```
 
-Please provide:
-1. Top 5 modernization priorities (ranked by impact)
-2. Specific refactoring recommendations
-3. Framework/library upgrade suggestions
-4. Architecture improvements
-5. Migration strategy (step-by-step approach)
+REQUIRED JSON SCHEMA (return ONLY this, no markdown):
+{{
+  "summary": "string: 1-2 sentence modernization assessment",
+  "priority_score": "integer: 1-10 (urgency of modernization)",
+  "suggestions": [
+    {{
+      "title": "string: Specific suggestion (e.g., 'Migrate to Spring Boot 3.x')",
+      "description": "string: What to do and why",
+      "priority": "critical|high|medium|low",
+      "category": "framework|architecture|security|performance|testing",
+      "estimated_effort": "low|medium|high",
+      "benefits": ["string: Specific benefit 1", "string: Specific benefit 2"],
+      "risks": ["string: Specific risk 1"],
+      "implementation_steps": ["string: Step 1", "string: Step 2"],
+      "affected_files": ["string: file path"],
+      "confidence": "float: 0.0-1.0"
+    }}
+  ],
+  "migration_strategy": {{
+    "phase_1": ["string: Quick wins"],
+    "phase_2": ["string: Core changes"],
+    "phase_3": ["string: Final optimizations"]
+  }},
+  "blockers": ["string: Potential blocker 1"]
+}}
 
-Focus on practical, implementable suggestions."""
+STRICT RULES:
+1. priority MUST be: "critical", "high", "medium", or "low"
+2. category MUST be: "framework", "architecture", "security", "performance", or "testing"
+3. estimated_effort MUST be: "low", "medium", or "high"
+4. implementation_steps MUST be actionable (not vague)
+5. benefits and risks MUST be specific and measurable
+6. NO markdown, NO explanations, ONLY JSON"""
     
     @staticmethod
     def answer_query(
@@ -163,26 +217,48 @@ Focus on understanding the system's structure and organization."""
     ) -> str:
         """Generate prompt for validating suggestions."""
         suggestions_text = "\n".join([
-            f"{i+1}. {s.get('title', 'Unknown')}: {s.get('description', '')[:100]}"
-            for i, s in enumerate(suggestions[:5])
+            f"{i+1}. [{s.get('priority', '?')}] {s.get('title', 'Unknown')}"
+            for i, s in enumerate(suggestions[:10])
         ])
         
-        return f"""You are a technical reviewer validating modernization recommendations.
+        loc = codebase_context.get('total_loc', 0)
+        language = codebase_context.get('language', 'Unknown')
+        
+        return f"""You are a technical validator. Return ONLY valid JSON matching the exact schema below.
 
-Codebase: {codebase_context.get('language', 'Unknown')} project
-Size: {codebase_context.get('total_loc', 0)} lines of code
+CODEBASE: {language}, {loc} LOC
+SUGGESTIONS TO VALIDATE: {len(suggestions)}
 
-Proposed Suggestions:
+SUGGESTIONS:
 {suggestions_text}
 
-Please review and provide:
-1. Feasibility assessment for each suggestion
-2. Potential risks or challenges
-3. Estimated effort (low/medium/high)
-4. Dependencies between suggestions
-5. Recommended implementation order
+REQUIRED JSON SCHEMA (return ONLY this, no markdown):
+{{
+  "overall_feasibility": "high|medium|low",
+  "validation_summary": "string: 1-2 sentence assessment",
+  "validated_suggestions": [
+    {{
+      "suggestion_id": "integer: index from input (0-based)",
+      "title": "string: original suggestion title",
+      "feasibility": "high|medium|low",
+      "estimated_effort_days": "integer: realistic days estimate",
+      "risks": ["string: Specific risk 1", "string: Specific risk 2"],
+      "dependencies": ["integer: indices of prerequisite suggestions"],
+      "validation_notes": "string: Why feasible/infeasible",
+      "approved": "boolean: true if recommended"
+    }}
+  ],
+  "implementation_order": ["integer: suggestion indices in recommended order"],
+  "critical_blockers": ["string: Blocker that prevents implementation"]
+}}
 
-Be realistic about complexity and effort required."""
+STRICT RULES:
+1. feasibility MUST be: "high", "medium", or "low"
+2. estimated_effort_days MUST be realistic integer (1-365)
+3. dependencies MUST reference valid suggestion indices
+4. approved MUST be boolean true/false
+5. implementation_order MUST list indices in dependency-aware order
+6. NO markdown, NO explanations, ONLY JSON"""
     
     @staticmethod
     def generate_test_recommendations(

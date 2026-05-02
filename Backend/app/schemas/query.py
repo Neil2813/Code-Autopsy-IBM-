@@ -75,6 +75,7 @@ class QueryHistoryItem(BaseModel):
     query_id: str = Field(..., description="Query identifier")
     question: str = Field(..., description="Question asked")
     answer_preview: str = Field(..., description="Preview of the answer (first 200 chars)")
+    answer_full: Optional[str] = Field(None, description="Full answer text")
     confidence: float = Field(..., description="Confidence score")
     created_at: str = Field(..., description="Query timestamp")
 

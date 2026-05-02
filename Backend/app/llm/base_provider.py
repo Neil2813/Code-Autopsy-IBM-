@@ -6,7 +6,7 @@ Abstract base class for all LLM providers.
 
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -21,14 +21,8 @@ class LLMResponse:
     latency_ms: float = 0.0
     success: bool = True
     error: Optional[str] = None
-    metadata: Dict[str, Any] = None
-    timestamp: datetime = None
-    
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
-        if self.timestamp is None:
-            self.timestamp = datetime.utcnow()
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
 class BaseLLMProvider(ABC):
@@ -66,7 +60,9 @@ class BaseLLMProvider(ABC):
         Returns:
             LLMResponse with generated content
         """
-        pass
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement generate() method"
+        )
     
     @abstractmethod
     async def check_availability(self) -> bool:
@@ -76,7 +72,9 @@ class BaseLLMProvider(ABC):
         Returns:
             True if provider is available and configured
         """
-        pass
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement check_availability() method"
+        )
     
     def is_available(self) -> bool:
         """Check if provider is currently available."""

@@ -68,20 +68,23 @@ class AnalyzeRequest(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    """Response schema for analysis start."""
+    """Response schema for analysis completion (synchronous execution)."""
 
     job_id: str = Field(..., description="Job identifier")
-    status: str = Field(..., description="Initial status")
+    status: str = Field(..., description="Final status (completed or failed)")
     message: str = Field(..., description="Status message")
-    estimated_duration_seconds: Optional[int] = Field(None, description="Estimated completion time")
+    estimated_duration_seconds: Optional[int] = Field(
+        None,
+        description="Not applicable for synchronous execution (always None)"
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "job_id": "j123e456-e89b-12d3-a456-426614174000",
-                "status": "queued",
-                "message": "Analysis job queued successfully",
-                "estimated_duration_seconds": 300,
+                "status": "completed",
+                "message": "Analysis completed successfully",
+                "estimated_duration_seconds": None,
             }
         }
 

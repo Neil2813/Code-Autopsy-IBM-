@@ -17,14 +17,14 @@ from pydantic import BaseModel, Field
 
 # Enums
 class JobStatusEnum(str, Enum):
-    """Job status enumeration."""
+    """Job status enumeration - aligned with storage model."""
 
-    PENDING = "pending"
     QUEUED = "queued"
-    RUNNING = "running"
+    PROCESSING = "processing"  # Aligned with model's PROCESSING status
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PARTIAL_SUCCESS = "partial_success"  # Added to match model
 
 
 class LanguageEnum(str, Enum):
@@ -100,12 +100,19 @@ class ErrorResponse(BaseModel):
     error: Dict[str, Any] = Field(
         ...,
         description="Error information",
-        example={
-            "code": "VALIDATION_ERROR",
-            "message": "Request validation failed",
-            "details": {"errors": [{"field": "file", "message": "File is required"}]},
-        },
     )
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed",
+                    "details": {"errors": [{"field": "file", "message": "File is required"}]},
+                }
+            }
+        }
+    }
 
 
 class PaginationParams(BaseModel):

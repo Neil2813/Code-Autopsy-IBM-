@@ -97,6 +97,9 @@ class RiskItem(BaseModel):
     category: str = Field(..., description="Risk category (security, maintainability, performance, etc.)")
     affected_files: List[FileReference] = Field(..., description="Files affected by this risk")
     recommendation: str = Field(..., description="Recommendation to address the risk")
+    line_start: Optional[int] = Field(None, description="Primary affected line number")
+    line_end: Optional[int] = Field(None, description="Primary affected ending line number")
+    code_snippet: Optional[str] = Field(None, description="Minimal affected code snippet")
     mcp_solution_available: bool = Field(False, description="Whether MCP has a solution for this risk")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
 

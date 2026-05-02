@@ -5,9 +5,10 @@ Manages multiple LLM providers with fallback logic.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from app.llm.base_provider import BaseLLMProvider, LLMResponse
+from app.llm.watsonx_provider import WatsonxProvider
 from app.llm.openai_provider import OpenAIProvider
 from app.llm.groq_provider import GroqProvider
 from app.llm.rule_based_provider import RuleBasedProvider
@@ -20,18 +21,22 @@ class LLMProviderChain:
     Chain of LLM providers with automatic fallback.
     
     Tries providers in order:
-    1. OpenAI (primary)
-    2. Groq (secondary)
-    3. Rule-based (tertiary, always available)
+    1. IBM watsonx.ai (primary) - Enterprise-grade foundation models
+    2. OpenAI (secondary) - Fallback for high availability
+    3. Groq (tertiary) - Fast inference fallback
+    4. Rule-based (quaternary) - Always available deterministic fallback
     """
     
     def __init__(self):
         self.providers: List[BaseLLMProvider] = [
+            WatsonxProvider(),
             OpenAIProvider(),
             GroqProvider(),
             RuleBasedProvider()
         ]
         self._initialized = False
+        self._last_check_time: Dict[str, float] = {}
+        self._check_interval_seconds = 300  # Re-check every 5 minutes
     
     async def initialize(self) -> None:
         """Initialize all providers and check availability."""
@@ -45,11 +50,47 @@ class LLMProviderChain:
                 available = await provider.check_availability()
                 status = "available" if available else "unavailable"
                 logger.info(f"Provider {provider.get_name()}: {status}")
+                
+                # Record check time
+                import time
+                self._last_check_time[provider.get_name()] = time.time()
             except Exception as e:
                 logger.error(f"Failed to initialize {provider.get_name()}: {e}")
+                provider.available = False
         
         self._initialized = True
         logger.info("LLM provider chain initialized")
+    
+    async def refresh_provider_status(self, force: bool = False) -> None:
+        """
+        Refresh availability status of all providers.
+        
+        Args:
+            force: Force refresh even if recently checked
+        """
+        import time
+        current_time = time.time()
+        
+        for provider in self.providers:
+            provider_name = provider.get_name()
+            last_check = self._last_check_time.get(provider_name, 0)
+            
+            # Skip if recently checked (unless forced)
+            if not force and (current_time - last_check) < self._check_interval_seconds:
+                continue
+            
+            try:
+                logger.debug(f"Refreshing status for {provider_name}")
+                available = await provider.check_availability()
+                self._last_check_time[provider_name] = current_time
+                
+                # Log status changes
+                if available != provider.is_available():
+                    status = "available" if available else "unavailable"
+                    logger.info(f"Provider {provider_name} status changed to: {status}")
+            except Exception as e:
+                logger.warning(f"Failed to refresh {provider_name}: {e}")
+                provider.available = False
     
     async def generate(
         self,
@@ -60,7 +101,7 @@ class LLMProviderChain:
         **kwargs
     ) -> LLMResponse:
         """
-        Generate text using the first available provider.
+        Generate text using the first available provider with fallback.
         
         Args:
             prompt: User prompt
@@ -75,15 +116,23 @@ class LLMProviderChain:
         if not self._initialized:
             await self.initialize()
         
+        # Refresh provider status if needed
+        await self.refresh_provider_status(force=False)
+        
         errors = []
+        attempted_providers = []
         
         for provider in self.providers:
+            provider_name = provider.get_name()
+            
             if not provider.is_available():
-                logger.debug(f"Skipping unavailable provider: {provider.get_name()}")
+                logger.debug(f"Skipping unavailable provider: {provider_name}")
+                errors.append(f"{provider_name}: not available")
                 continue
             
             try:
-                logger.info(f"Attempting generation with {provider.get_name()}")
+                logger.info(f"Attempting generation with {provider_name}")
+                attempted_providers.append(provider_name)
                 
                 response = await provider.generate(
                     prompt=prompt,
@@ -95,27 +144,43 @@ class LLMProviderChain:
                 
                 if response.success:
                     logger.info(
-                        f"Successfully generated response with {provider.get_name()}"
+                        f"Successfully generated response with {provider_name} "
+                        f"({response.tokens_used} tokens, {response.latency_ms:.0f}ms)"
                     )
                     return response
                 else:
-                    error_msg = f"{provider.get_name()} failed: {response.error}"
+                    error_msg = f"{provider_name} failed: {response.error or 'unknown error'}"
                     logger.warning(error_msg)
                     errors.append(error_msg)
                     
+                    # Mark provider as temporarily unavailable on repeated failures
+                    provider.available = False
+                    
             except Exception as e:
-                error_msg = f"{provider.get_name()} exception: {str(e)}"
-                logger.error(error_msg)
+                error_msg = f"{provider_name} exception: {str(e)}"
+                logger.error(error_msg, exc_info=True)
                 errors.append(error_msg)
+                provider.available = False
         
         # All providers failed
-        logger.error("All LLM providers failed")
+        diagnostic_info = {
+            "attempted": attempted_providers,
+            "total_providers": len(self.providers),
+            "errors": errors
+        }
+        
+        logger.error(
+            f"All LLM providers failed. Attempted: {attempted_providers}. "
+            f"Errors: {'; '.join(errors[:3])}"
+        )
+        
         return LLMResponse(
             content="",
             provider="none",
             model="none",
             success=False,
-            error=f"All providers failed: {'; '.join(errors)}"
+            error=f"All {len(attempted_providers)} providers failed",
+            metadata=diagnostic_info
         )
     
     def get_available_providers(self) -> List[str]:

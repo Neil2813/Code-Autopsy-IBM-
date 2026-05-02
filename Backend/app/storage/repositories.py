@@ -15,10 +15,27 @@ from sqlalchemy import and_, or_, desc
 from app.storage.models import (
     Job, File, AnalysisResult, Risk, Suggestion, Query
 )
-from app.schemas.common import JobStatusEnum, SeverityEnum, LanguageEnum
+from app.schemas.common import JobStatusEnum, SeverityEnum, LanguageEnum, PriorityEnum
 from app.middleware.error_handler import NotFoundError, ConflictError
 
 logger = logging.getLogger(__name__)
+
+# Severity ranking for proper ordering (higher = more severe)
+SEVERITY_RANK = {
+    "critical": 5,
+    "high": 4,
+    "medium": 3,
+    "low": 2,
+    "info": 1
+}
+
+# Priority ranking for proper ordering (higher = more priority)
+PRIORITY_RANK = {
+    "critical": 4,
+    "high": 3,
+    "medium": 2,
+    "low": 1
+}
 
 
 class JobRepository:
@@ -63,17 +80,21 @@ class JobRepository:
         ).filter(Job.id == job_id).first()
     
     def update_job_status(
-        self, 
-        job_id: str, 
+        self,
+        job_id: str,
         status: JobStatusEnum,
         error_message: Optional[str] = None
     ) -> Job:
         """Update job status."""
+        from app.storage.models import JobStatusEnum as ModelJobStatusEnum
+        
         job = self.get_job_or_raise(job_id)
-        job.status = status
+        # Convert schema enum to model enum
+        model_status = ModelJobStatusEnum[status.name]
+        setattr(job, 'status', model_status)
         if error_message:
-            job.error_message = error_message
-        job.updated_at = datetime.utcnow()
+            setattr(job, 'error_message', error_message)
+        setattr(job, 'updated_at', datetime.utcnow())
         self.db.flush()
         logger.info(f"Updated job {job_id} status to {status}")
         return job
@@ -86,10 +107,10 @@ class JobRepository:
     ) -> Job:
         """Update job progress."""
         job = self.get_job_or_raise(job_id)
-        job.progress_percent = progress_percent
+        setattr(job, 'progress', progress_percent)
         if current_stage:
-            job.current_stage = current_stage
-        job.updated_at = datetime.utcnow()
+            setattr(job, 'current_stage', current_stage)
+        setattr(job, 'updated_at', datetime.utcnow())
         self.db.flush()
         return job
     
@@ -100,11 +121,13 @@ class JobRepository:
     ) -> Job:
         """Update job metadata."""
         job = self.get_job_or_raise(job_id)
-        if job.metadata:
-            job.metadata.update(metadata)
+        current_metadata = getattr(job, 'job_metadata', None)
+        if current_metadata:
+            current_metadata.update(metadata)
+            setattr(job, 'job_metadata', current_metadata)
         else:
-            job.metadata = metadata
-        job.updated_at = datetime.utcnow()
+            setattr(job, 'job_metadata', metadata)
+        setattr(job, 'updated_at', datetime.utcnow())
         self.db.flush()
         return job
     
@@ -162,9 +185,11 @@ class FileRepository:
         job_id: str,
         language: LanguageEnum
     ) -> List[File]:
-        """Get files by language for a job."""
+        """Get files by language for a job. Tolerant of enum-vs-string mismatches."""
+        # Handle both enum and string values
+        language_value = language.value if isinstance(language, LanguageEnum) else language
         return self.db.query(File).filter(
-            and_(File.job_id == job_id, File.language == language)
+            and_(File.job_id == job_id, File.language == language_value)
         ).all()
     
     def update_file_analysis(
@@ -180,13 +205,14 @@ class FileRepository:
             raise NotFoundError(f"File {file_id} not found")
         
         if parsed_content is not None:
-            file.parsed_content = parsed_content
+            setattr(file, 'parsed_content', parsed_content)
         if complexity_score is not None:
-            file.complexity_score = complexity_score
+            setattr(file, 'complexity_score', complexity_score)
         if lines_of_code is not None:
-            file.lines_of_code = lines_of_code
+            setattr(file, 'lines_of_code', lines_of_code)
         
-        file.updated_at = datetime.utcnow()
+        # Update the timestamp
+        setattr(file, 'updated_at', datetime.utcnow())
         self.db.flush()
         return file
 
@@ -259,8 +285,12 @@ class RiskRepository:
         """Get risks for a job, optionally filtered by severity."""
         query = self.db.query(Risk).filter(Risk.job_id == job_id)
         if severity:
-            query = query.filter(Risk.severity == severity)
-        return query.order_by(desc(Risk.severity)).all()
+            query = query.filter(Risk.level == severity.value)
+        
+        # Fetch all risks and sort by severity rank (handle string values)
+        risks = query.all()
+        risks.sort(key=lambda r: SEVERITY_RANK.get(str(r.level).lower() if r.level is not None else "", 0), reverse=True)
+        return risks
     
     def get_critical_risks(self, job_id: str) -> List[Risk]:
         """Get critical and high severity risks."""
@@ -268,8 +298,8 @@ class RiskRepository:
             and_(
                 Risk.job_id == job_id,
                 or_(
-                    Risk.severity == SeverityEnum.CRITICAL,
-                    Risk.severity == SeverityEnum.HIGH
+                    Risk.level == SeverityEnum.CRITICAL.value,
+                    Risk.level == SeverityEnum.HIGH.value
                 )
             )
         ).all()
@@ -300,10 +330,19 @@ class SuggestionRepository:
         return suggestions
     
     def get_suggestions_by_job(self, job_id: str) -> List[Suggestion]:
-        """Get all suggestions for a job."""
-        return self.db.query(Suggestion).filter(
+        """Get all suggestions for a job, ordered by priority rank."""
+        suggestions = self.db.query(Suggestion).filter(
             Suggestion.job_id == job_id
-        ).order_by(desc(Suggestion.priority)).all()
+        ).all()
+        
+        # Sort by priority rank (handle both integer and string priorities)
+        def get_priority_rank(s):
+            if isinstance(s.priority, int):
+                return s.priority
+            return PRIORITY_RANK.get(str(s.priority).lower() if s.priority else "", 0)
+        
+        suggestions.sort(key=get_priority_rank, reverse=True)
+        return suggestions
     
     def get_high_priority_suggestions(self, job_id: str) -> List[Suggestion]:
         """Get high priority suggestions."""

@@ -11,14 +11,17 @@ This module provides centralized error handling with:
 
 import logging
 import traceback
-from typing import Union
+from typing import Optional, Union
 
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.config.settings import get_settings
+
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class APIError(Exception):
@@ -29,7 +32,7 @@ class APIError(Exception):
         message: str,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         error_code: str = "INTERNAL_ERROR",
-        details: dict = None,
+        details: Optional[dict] = None,
     ):
         self.message = message
         self.status_code = status_code
@@ -41,7 +44,7 @@ class APIError(Exception):
 class ValidationError(APIError):
     """Validation error exception."""
 
-    def __init__(self, message: str, details: dict = None):
+    def __init__(self, message: str, details: Optional[dict] = None):
         super().__init__(
             message=message,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -53,7 +56,7 @@ class ValidationError(APIError):
 class NotFoundError(APIError):
     """Resource not found exception."""
 
-    def __init__(self, message: str, resource_type: str = None):
+    def __init__(self, message: str, resource_type: Optional[str] = None):
         details = {"resource_type": resource_type} if resource_type else {}
         super().__init__(
             message=message,
@@ -66,7 +69,7 @@ class NotFoundError(APIError):
 class ConflictError(APIError):
     """Resource conflict exception."""
 
-    def __init__(self, message: str, details: dict = None):
+    def __init__(self, message: str, details: Optional[dict] = None):
         super().__init__(
             message=message,
             status_code=status.HTTP_409_CONFLICT,
@@ -100,7 +103,7 @@ class ForbiddenError(APIError):
 class ServiceUnavailableError(APIError):
     """Service unavailable exception."""
 
-    def __init__(self, message: str, service_name: str = None):
+    def __init__(self, message: str, service_name: Optional[str] = None):
         details = {"service_name": service_name} if service_name else {}
         super().__init__(
             message=message,
@@ -111,7 +114,11 @@ class ServiceUnavailableError(APIError):
 
 
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
-    """Handle custom API errors."""
+    """Handle custom API errors with correlation ID."""
+    # Get correlation ID from request state
+    correlation_id = getattr(request.state, "correlation_id", None)
+    request_id = getattr(request.state, "request_id", None)
+    
     logger.error(
         f"API Error: {exc.error_code} - {exc.message}",
         extra={
@@ -119,6 +126,8 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
             "status_code": exc.status_code,
             "details": exc.details,
             "path": request.url.path,
+            "correlation_id": correlation_id,
+            "request_id": request_id,
         },
     )
 
@@ -129,6 +138,8 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
                 "code": exc.error_code,
                 "message": exc.message,
                 "details": exc.details,
+                "correlation_id": correlation_id,
+                "request_id": request_id,
             }
         },
     )
@@ -137,12 +148,18 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
 async def http_exception_handler(
     request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
-    """Handle HTTP exceptions."""
+    """Handle HTTP exceptions with correlation ID."""
+    # Get correlation ID from request state
+    correlation_id = getattr(request.state, "correlation_id", None)
+    request_id = getattr(request.state, "request_id", None)
+    
     logger.warning(
         f"HTTP Exception: {exc.status_code} - {exc.detail}",
         extra={
             "status_code": exc.status_code,
             "path": request.url.path,
+            "correlation_id": correlation_id,
+            "request_id": request_id,
         },
     )
 
@@ -153,6 +170,8 @@ async def http_exception_handler(
                 "code": "HTTP_ERROR",
                 "message": exc.detail,
                 "details": {},
+                "correlation_id": correlation_id,
+                "request_id": request_id,
             }
         },
     )
@@ -161,7 +180,11 @@ async def http_exception_handler(
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    """Handle validation errors."""
+    """Handle validation errors with correlation ID."""
+    # Get correlation ID from request state
+    correlation_id = getattr(request.state, "correlation_id", None)
+    request_id = getattr(request.state, "request_id", None)
+    
     errors = []
     for error in exc.errors():
         errors.append(
@@ -177,6 +200,8 @@ async def validation_exception_handler(
         extra={
             "errors": errors,
             "path": request.url.path,
+            "correlation_id": correlation_id,
+            "request_id": request_id,
         },
     )
 
@@ -187,30 +212,53 @@ async def validation_exception_handler(
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
                 "details": {"errors": errors},
+                "correlation_id": correlation_id,
+                "request_id": request_id,
             }
         },
     )
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Handle generic exceptions."""
+    """Handle generic exceptions with proper production/development handling."""
+    # Get correlation ID from request state
+    correlation_id = getattr(request.state, "correlation_id", None)
+    request_id = getattr(request.state, "request_id", None)
+    
     logger.error(
         f"Unhandled Exception: {type(exc).__name__} - {str(exc)}",
         extra={
             "exception_type": type(exc).__name__,
             "path": request.url.path,
             "traceback": traceback.format_exc(),
+            "correlation_id": correlation_id,
+            "request_id": request_id,
         },
     )
 
-    # Don't expose internal error details in production
+    # In production, hide internal error details for security
+    # In development, expose details for debugging
+    if settings.environment == "production":
+        error_message = "An internal error occurred. Please try again later."
+        error_details = {}
+    else:
+        # Development mode: expose error details for debugging
+        error_message = f"{type(exc).__name__}: {str(exc)}"
+        error_details = {
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "traceback": traceback.format_exc().split("\n") if settings.debug else None,
+        }
+    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": {
                 "code": "INTERNAL_ERROR",
-                "message": "An internal error occurred. Please try again later.",
-                "details": {},
+                "message": error_message,
+                "details": error_details,
+                "correlation_id": correlation_id,
+                "request_id": request_id,
             }
         },
     )

@@ -18,8 +18,8 @@ class GroqProvider(BaseLLMProvider):
     """Groq LLM provider."""
     
     def __init__(self):
-        super().__init__("groq", settings.groq_llm_model)
-        self.api_key = settings.groq_llm_api_key
+        super().__init__("groq", settings.groq_model)
+        self.api_key = settings.groq_api_key
         self.client = None
     
     async def check_availability(self) -> bool:
@@ -32,7 +32,7 @@ class GroqProvider(BaseLLMProvider):
         
         if self.available:
             try:
-                from groq import AsyncGroq
+                from groq import AsyncGroq  # type: ignore[import-untyped]
                 self.client = AsyncGroq(api_key=self.api_key)
                 logger.info("Groq provider initialized successfully")
             except ImportError:

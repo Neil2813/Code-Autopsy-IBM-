@@ -10,8 +10,7 @@ This module provides endpoints for:
 import logging
 from typing import List
 
-from fastapi import APIRouter, File, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, UploadFile, status, HTTPException
 
 from app.schemas import (
     CodeSnippetUploadRequest,
@@ -19,6 +18,7 @@ from app.schemas import (
     RepositoryUploadRequest,
     UploadResponse,
 )
+from app.services.upload_service import upload_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,25 +48,19 @@ async def upload_files(files: List[UploadFile] = File(...)):
     
     Returns a job ID for tracking the analysis.
     """
-    # TODO: Implement file upload logic
-    # 1. Validate file types and sizes
-    # 2. Store files temporarily
-    # 3. Detect languages
-    # 4. Create job record
-    # 5. Return upload response
-    
     logger.info(f"Received {len(files)} files for upload")
     
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content={
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "message": "File upload endpoint not yet implemented",
-                "details": {"files_received": len(files)},
-            }
-        },
-    )
+    try:
+        response = await upload_service.upload_files(files)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading files: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload files: {str(e)}"
+        )
 
 
 @router.post(
@@ -93,26 +87,25 @@ async def upload_repository(request: RepositoryUploadRequest):
     
     Returns a job ID for tracking the analysis.
     """
-    # TODO: Implement repository upload logic
-    # 1. Validate repository URL
-    # 2. Clone repository (with authentication if needed)
-    # 3. Filter files based on patterns
-    # 4. Detect languages
-    # 5. Create job record
-    # 6. Return upload response
-    
     logger.info(f"Received repository upload request: {request.repository_url}")
     
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content={
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "message": "Repository upload endpoint not yet implemented",
-                "details": {"repository_url": str(request.repository_url)},
-            }
-        },
-    )
+    try:
+        response = await upload_service.clone_repository(
+            repository_url=str(request.repository_url),
+            branch=request.branch,
+            subdirectory=request.subdirectory,
+            include_patterns=request.include_patterns,
+            exclude_patterns=request.exclude_patterns
+        )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cloning repository: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clone repository: {str(e)}"
+        )
 
 
 @router.post(
@@ -137,24 +130,22 @@ async def upload_snippet(request: CodeSnippetUploadRequest):
     
     Returns a job ID for tracking the analysis.
     """
-    # TODO: Implement snippet upload logic
-    # 1. Validate code snippet
-    # 2. Detect language (or use provided language)
-    # 3. Create temporary file
-    # 4. Create job record
-    # 5. Return upload response
-    
     logger.info(f"Received code snippet upload: {len(request.code)} characters")
     
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content={
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "message": "Code snippet upload endpoint not yet implemented",
-                "details": {"code_length": len(request.code)},
-            }
-        },
-    )
+    try:
+        response = await upload_service.process_snippet(
+            code=request.code,
+            language=request.language.value if request.language else None,
+            filename=request.filename
+        )
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing snippet: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process code snippet: {str(e)}"
+        )
 
 # Made with Bob

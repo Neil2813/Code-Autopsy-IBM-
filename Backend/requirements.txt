@@ -26,7 +26,11 @@ langchain-openai==0.0.2
 langchain-anthropic==0.0.1
 langchain-groq==0.0.1
 
-# LLM Providers
+# LLM Providers - IBM watsonx.ai (Primary)
+ibm-watson-machine-learning>=1.0.335
+ibm-watsonx-ai>=0.2.0
+
+# LLM Providers - Others (Fallback)
 openai>=1.10.0
 anthropic>=0.8.1
 groq>=0.4.1

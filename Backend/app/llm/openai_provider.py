@@ -18,8 +18,8 @@ class OpenAIProvider(BaseLLMProvider):
     """OpenAI GPT provider."""
     
     def __init__(self):
-        super().__init__("openai", settings.primary_llm_model)
-        self.api_key = settings.primary_llm_api_key
+        super().__init__("openai", settings.openai_model)
+        self.api_key = settings.openai_api_key
         self.client = None
     
     async def check_availability(self) -> bool:
@@ -32,7 +32,7 @@ class OpenAIProvider(BaseLLMProvider):
         
         if self.available:
             try:
-                from openai import AsyncOpenAI
+                from openai import AsyncOpenAI  # type: ignore[import-untyped]
                 self.client = AsyncOpenAI(api_key=self.api_key)
                 logger.info("OpenAI provider initialized successfully")
             except ImportError:

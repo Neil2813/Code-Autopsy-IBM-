@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+import re
 
 
 class NodeType(str, Enum):
@@ -248,13 +249,119 @@ class BaseParser(ABC):
             return 0.0
         
         total_complexity = sum(
-            node.complexity or 0 
-            for node in nodes 
+            node.complexity or 0
+            for node in nodes
             if node.complexity is not None
         )
         
         # Normalize to 0-1 range (assuming max complexity of 100 per node)
         max_possible = len(nodes) * 100
         return min(total_complexity / max_possible, 1.0) if max_possible > 0 else 0.0
+    
+    def _calculate_cyclomatic_complexity(self, content: str, line_start: int, line_end: int) -> int:
+        """
+        Calculate cyclomatic complexity for a code block.
+        
+        Args:
+            content: Full source code content
+            line_start: Starting line number (1-based)
+            line_end: Ending line number (1-based)
+            
+        Returns:
+            Cyclomatic complexity score
+        """
+        lines = content.split('\n')
+        block_lines = lines[line_start-1:line_end]
+        block_content = '\n'.join(block_lines)
+        
+        # Base complexity is 1
+        complexity = 1
+        
+        # Count decision points (language-agnostic patterns)
+        decision_keywords = [
+            r'\bif\b', r'\belse\b', r'\belif\b', r'\belse\s+if\b',
+            r'\bfor\b', r'\bwhile\b', r'\bdo\b',
+            r'\bcase\b', r'\bwhen\b', r'\bswitch\b',
+            r'\bcatch\b', r'\bexcept\b',
+            r'\band\b', r'\bor\b', r'\b&&\b', r'\b\|\|\b',
+            r'\?', r'\bEVALUATE\b', r'\bPERFORM\b.*\bUNTIL\b'
+        ]
+        
+        for pattern in decision_keywords:
+            complexity += len(re.findall(pattern, block_content, re.IGNORECASE))
+        
+        return complexity
+    
+    def _find_block_end(self, lines: List[str], start_line: int, open_char: str = '{', close_char: str = '}') -> int:
+        """
+        Find the ending line of a code block by matching braces/keywords.
+        
+        Args:
+            lines: List of all lines in the file
+            start_line: Starting line number (0-based index)
+            open_char: Opening character/keyword
+            close_char: Closing character/keyword
+            
+        Returns:
+            Ending line number (0-based index)
+        """
+        depth = 0
+        found_open = False
+        
+        for i in range(start_line, len(lines)):
+            line = lines[i]
+            
+            # Count opening and closing characters
+            depth += line.count(open_char)
+            depth += line.count(close_char) * -1
+            
+            if depth > 0:
+                found_open = True
+            
+            if found_open and depth == 0:
+                return i
+        
+        # If no matching close found, return last line
+        return len(lines) - 1
+    
+    def _extract_body_content(self, content: str, line_start: int, line_end: int) -> str:
+        """
+        Extract the body content between line numbers.
+        
+        Args:
+            content: Full source code content
+            line_start: Starting line number (1-based)
+            line_end: Ending line number (1-based)
+            
+        Returns:
+            Body content as string
+        """
+        lines = content.split('\n')
+        if line_start < 1 or line_end > len(lines):
+            return ""
+        
+        return '\n'.join(lines[line_start-1:line_end])
+    
+    def _enrich_node_metadata(self, node: CodeNode, content: str) -> None:
+        """
+        Enrich a node with additional metadata.
+        
+        Args:
+            node: CodeNode to enrich
+            content: Full source code content
+        """
+        # Calculate complexity if not already set
+        if node.complexity is None and node.line_end > node.line_start:
+            node.complexity = self._calculate_cyclomatic_complexity(
+                content, node.line_start, node.line_end
+            )
+        
+        # Add line count
+        node.metadata['line_count'] = node.line_end - node.line_start + 1
+        
+        # Extract and store body content hash for change detection
+        body = self._extract_body_content(content, node.line_start, node.line_end)
+        node.metadata['body_hash'] = hash(body)
+        node.metadata['body_length'] = len(body)
 
 # Made with Bob

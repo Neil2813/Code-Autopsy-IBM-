@@ -25,13 +25,13 @@ class Job(Base):
     __tablename__ = "jobs"
     
     id = Column(String(36), primary_key=True)
-    status = Column(Enum(JobStatusEnum), nullable=False, default=JobStatusEnum.QUEUED)
+    status = Column(Enum(JobStatusEnum, native_enum=False, length=50), nullable=False, default=JobStatusEnum.QUEUED)
     progress = Column(Float, default=0.0)
     current_stage = Column(String(50))
     error_message = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSON)
+    job_metadata = Column(JSON)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
     
     # Relationships
     files = relationship("File", back_populates="job", cascade="all, delete-orphan")
@@ -51,10 +51,12 @@ class File(Base):
     language = Column(String(50))
     file_type = Column(String(50))
     content = Column(Text)
+    parsed_content = Column(JSON)  # Parsed/analyzed content from parsers
     size_bytes = Column(Integer)
     lines_of_code = Column(Integer)
     complexity_score = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     job = relationship("Job", back_populates="files")
@@ -132,6 +134,7 @@ class Query(Base):
     references = Column(JSON)
     mcp_solutions_used = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     job = relationship("Job", back_populates="queries")

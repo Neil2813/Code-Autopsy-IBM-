@@ -5,7 +5,7 @@ Analyzes code dependencies and builds dependency graphs.
 """
 
 import logging
-from typing import List, Dict, Set, Any
+from typing import List, Dict, Set, Any, Optional
 from collections import defaultdict
 
 from app.parsers.base_parser import ParseResult
@@ -69,10 +69,10 @@ class DependencyAnalyzer:
             name=self._get_file_name(parse_result.file_path),
             type=node_type,
             file_path=parse_result.file_path,
-            language=parse_result.language,
-            lines_of_code=parse_result.lines_of_code,
-            complexity_score=parse_result.complexity_score,
             metadata={
+                "language": parse_result.language,
+                "lines_of_code": parse_result.lines_of_code,
+                "complexity_score": parse_result.complexity_score,
                 "imports": parse_result.imports,
                 "dependencies": parse_result.dependencies,
                 "node_count": len(parse_result.nodes)
@@ -82,27 +82,17 @@ class DependencyAnalyzer:
         self.nodes[node_id] = node
     
     def _add_dependency_edges(self, parse_result: ParseResult) -> None:
-        """Add dependency edges from a file to its dependencies."""
+        """
+        Add dependency edges from a file to its dependencies.
+        
+        Uses parsed imports and dependencies for accurate edge creation.
+        """
         source_id = self._get_node_id(parse_result.file_path)
         
         # Track unique dependencies to avoid duplicate edges
         seen_targets: Set[str] = set()
         
-        for dep in parse_result.dependencies:
-            # Try to find matching node
-            target_id = self._find_dependency_node(dep)
-            
-            if target_id and target_id != source_id and target_id not in seen_targets:
-                edge = DependencyEdge(
-                    source=source_id,
-                    target=target_id,
-                    type="imports",
-                    weight=1.0
-                )
-                self.edges.append(edge)
-                seen_targets.add(target_id)
-        
-        # Add edges for imports
+        # Process parsed imports (more reliable than dependencies list)
         for imp in parse_result.imports:
             target_id = self._find_dependency_node(imp)
             
@@ -115,22 +105,74 @@ class DependencyAnalyzer:
                 )
                 self.edges.append(edge)
                 seen_targets.add(target_id)
+        
+        # Process explicit dependencies (from COBOL COPY, JCL EXEC, etc.)
+        for dep in parse_result.dependencies:
+            target_id = self._find_dependency_node(dep)
+            
+            if target_id and target_id != source_id and target_id not in seen_targets:
+                # Determine edge type based on dependency nature
+                edge_type = "depends_on"
+                if any(keyword in dep.lower() for keyword in ['copy', 'include']):
+                    edge_type = "includes"
+                elif any(keyword in dep.lower() for keyword in ['call', 'exec']):
+                    edge_type = "calls"
+                
+                edge = DependencyEdge(
+                    source=source_id,
+                    target=target_id,
+                    type=edge_type,
+                    weight=1.0
+                )
+                self.edges.append(edge)
+                seen_targets.add(target_id)
+        
+        # Extract dependencies from parsed nodes (method calls, class references)
+        for node in parse_result.nodes:
+            if node.metadata:
+                # Process method calls
+                calls = node.metadata.get('calls', [])
+                for call in calls:
+                    target_id = self._find_dependency_node(call)
+                    if target_id and target_id != source_id and target_id not in seen_targets:
+                        edge = DependencyEdge(
+                            source=source_id,
+                            target=target_id,
+                            type="calls",
+                            weight=0.5  # Lower weight for method-level dependencies
+                        )
+                        self.edges.append(edge)
+                        seen_targets.add(target_id)
     
     def _determine_node_type(self, parse_result: ParseResult) -> str:
-        """Determine the type of node based on parsed content."""
-        # Check for specific patterns in nodes
-        node_types = [node.node_type.value for node in parse_result.nodes]
+        """
+        Determine the type of node based on parsed structure.
         
-        if "class" in node_types:
+        Uses actual parsed nodes instead of filename guessing.
+        """
+        if not parse_result.nodes:
+            return "module"
+        
+        # Count node types from parsed structure
+        node_type_counts = {}
+        for node in parse_result.nodes:
+            node_type = node.node_type.value.lower()
+            node_type_counts[node_type] = node_type_counts.get(node_type, 0) + 1
+        
+        # Determine primary type based on parsed content
+        if "class" in node_type_counts:
             return "class"
-        elif "interface" in node_types:
+        elif "interface" in node_type_counts:
             return "interface"
-        elif "procedure" in node_types or "subroutine" in node_types:
+        elif "procedure" in node_type_counts or "subroutine" in node_type_counts:
             return "procedure"
-        elif "division" in node_types:
+        elif "division" in node_type_counts or "program" in node_type_counts:
             return "program"
-        elif "job" in node_types or "step" in node_types:
+        elif "job" in node_type_counts or "step" in node_type_counts:
             return "job"
+        elif "function" in node_type_counts or "method" in node_type_counts:
+            # If only functions/methods, it's a module
+            return "module"
         else:
             return "module"
     
@@ -143,19 +185,84 @@ class DependencyAnalyzer:
         """Extract file name from path."""
         return file_path.split('/')[-1].split('\\')[-1]
     
-    def _find_dependency_node(self, dependency: str) -> str:
-        """Find a node ID that matches the dependency."""
-        # Try exact match first
-        for node_id, node in self.nodes.items():
-            if dependency in node.name or dependency in node.file_path:
-                return node_id
+    def _find_dependency_node(self, dependency: str) -> Optional[str]:
+        """
+        Find a node ID that matches the dependency using symbol resolution.
         
-        # Try partial match
+        Uses proper package/module resolution instead of substring matching.
+        """
+        if not dependency:
+            return None
+        
+        # Build symbol table for lookup
+        symbol_table = self._build_symbol_table()
+        
+        # Try exact symbol match first
+        if dependency in symbol_table:
+            return symbol_table[dependency]
+        
+        # Try package-qualified match
+        parts = dependency.split('.')
+        for i in range(len(parts)):
+            partial_name = '.'.join(parts[i:])
+            if partial_name in symbol_table:
+                return symbol_table[partial_name]
+        
+        # Try class/module name match (last component)
+        if parts:
+            simple_name = parts[-1]
+            if simple_name in symbol_table:
+                return symbol_table[simple_name]
+        
+        # Try file path match as fallback
         for node_id, node in self.nodes.items():
-            if dependency.split('.')[-1] in node.name:
+            # Match by file path components
+            if dependency in node.file_path:
+                return node_id
+            
+            # Match by normalized names
+            normalized_dep = dependency.replace('.', '/').replace('\\', '/')
+            normalized_path = node.file_path.replace('\\', '/')
+            if normalized_dep in normalized_path:
                 return node_id
         
         return None
+    
+    def _build_symbol_table(self) -> Dict[str, str]:
+        """
+        Build a symbol table mapping fully qualified names to node IDs.
+        
+        Returns:
+            Dictionary mapping symbol names to node IDs
+        """
+        symbol_table = {}
+        
+        for node_id, node in self.nodes.items():
+            # Add file name without extension
+            file_name = node.name
+            base_name = file_name
+            
+            if '.' in file_name:
+                base_name = file_name.rsplit('.', 1)[0]
+                symbol_table[base_name] = node_id
+            
+            symbol_table[file_name] = node_id
+            
+            # Add package-qualified names from metadata
+            if node.metadata:
+                package = node.metadata.get('package')
+                if package:
+                    qualified_name = f"{package}.{base_name}"
+                    symbol_table[qualified_name] = node_id
+                
+                # Add class names
+                classes = node.metadata.get('classes', [])
+                for cls in classes:
+                    symbol_table[cls] = node_id
+                    if package:
+                        symbol_table[f"{package}.{cls}"] = node_id
+        
+        return symbol_table
     
     def _calculate_metrics(self) -> None:
         """Calculate dependency metrics for each node."""

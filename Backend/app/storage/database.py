@@ -15,14 +15,25 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-# Synchronous engine and session
-engine = create_engine(
-    settings.database_url,
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
-)
+# Synchronous engine and session with conditional pool settings
+# SQLite doesn't support connection pooling the same way as PostgreSQL
+if settings.database_type == "sqlite":
+    # SQLite-specific settings
+    engine = create_engine(
+        settings.database_url,
+        echo=settings.debug,
+        pool_pre_ping=True,
+        connect_args={"check_same_thread": False}  # Allow multi-threading for SQLite
+    )
+else:
+    # PostgreSQL/MySQL settings with connection pooling
+    engine = create_engine(
+        settings.database_url,
+        echo=settings.debug,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20
+    )
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -39,11 +50,22 @@ elif settings.database_type == "sqlite":
 else:
     async_database_url = settings.database_url
 
-async_engine = create_async_engine(
-    async_database_url,
-    echo=settings.debug,
-    pool_pre_ping=True
-)
+# Conditional async engine creation based on database type
+if settings.database_type == "sqlite":
+    async_engine = create_async_engine(
+        async_database_url,
+        echo=settings.debug,
+        pool_pre_ping=True,
+        connect_args={"check_same_thread": False}
+    )
+else:
+    async_engine = create_async_engine(
+        async_database_url,
+        echo=settings.debug,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20
+    )
 
 AsyncSessionLocal = async_sessionmaker(
     async_engine,
@@ -76,7 +98,7 @@ async def init_db_async():
 @contextmanager
 def get_db() -> Generator[Session, None, None]:
     """
-    Get database session (synchronous)
+    Get database session (synchronous) - Context manager style.
     
     Usage:
         with get_db() as db:
@@ -96,7 +118,7 @@ def get_db() -> Generator[Session, None, None]:
 @asynccontextmanager
 async def get_db_async() -> AsyncGenerator[AsyncSession, None]:
     """
-    Get database session (asynchronous)
+    Get database session (asynchronous) - Context manager style.
     
     Usage:
         async with get_db_async() as db:
@@ -113,9 +135,10 @@ async def get_db_async() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-def get_db_session() -> Session:
+def get_db_session() -> Generator[Session, None, None]:
     """
-    Dependency for FastAPI endpoints (synchronous)
+    Dependency for FastAPI endpoints (synchronous).
+    Simplified to use consistent pattern.
     
     Usage:
         @app.get("/")
@@ -129,9 +152,10 @@ def get_db_session() -> Session:
         db.close()
 
 
-async def get_db_session_async() -> AsyncSession:
+async def get_db_session_async() -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependency for FastAPI endpoints (asynchronous)
+    Dependency for FastAPI endpoints (asynchronous).
+    Simplified to use consistent pattern.
     
     Usage:
         @app.get("/")
