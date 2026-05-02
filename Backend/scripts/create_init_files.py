@@ -1,3 +1,4 @@
+# for IBM hackathon
 """
 Script to create __init__.py files in all package directories
 """

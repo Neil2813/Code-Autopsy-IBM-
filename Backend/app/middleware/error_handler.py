@@ -1,3 +1,4 @@
+# for IBM hackathon
 """
 Global error handling middleware for the FastAPI application.
 
