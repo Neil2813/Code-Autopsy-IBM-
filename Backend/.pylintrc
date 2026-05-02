@@ -1,3 +1,4 @@
+# for IBM hackathon
 [MASTER]
 # Specify a configuration file.
 init-hook='import sys; sys.path.append(".")'
@@ -164,3 +165,4 @@ overgeneral-exceptions=builtins.BaseException
 contextmanager-decorators=contextlib.contextmanager
 
 # List of members which are set dynamically and missed by pylint inference
+# made with bob
