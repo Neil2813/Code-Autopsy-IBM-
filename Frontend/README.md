@@ -1,4 +1,4 @@
-# AI Legacy Modernization Copilot - Frontend
+# Code Autopsy : AI Legacy Modernization Copilot - Frontend
 
 **Built with IBM Bob and powered by IBM watsonx.ai**
 
