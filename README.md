@@ -1,4 +1,4 @@
-# AI Legacy Modernization Copilot
+# Code Autopsy : AI Legacy Modernization Copilot
 
 **Built with IBM Bob and powered by IBM watsonx.ai**
 
@@ -12,7 +12,7 @@ An intelligent system that analyzes, documents, and modernizes legacy codebases 
 Legacy systems represent billions in technical debt. Developers spend weeks analyzing undocumented code before making changes. This onboarding bottleneck costs enterprises $200-500/hour for specialized consultants and delays critical modernization projects.
 
 ### Our Solution
-AI Legacy Modernization Copilot uses **IBM watsonx.ai** to instantly analyze legacy code, generate comprehensive documentation, identify risks, and create actionable modernization plans—reducing analysis time from weeks to minutes.
+Code Autopsy uses **IBM watsonx.ai** to instantly analyze legacy code, generate comprehensive documentation, identify risks, and create actionable modernization plans—reducing analysis time from weeks to minutes.
 
 **Impact:**
 - ⏱️ **99.8% faster** code analysis (2 weeks → 5 minutes)
