@@ -1,3 +1,4 @@
+# for IBM hackathon
 # Core FastAPI and Web Framework
 fastapi==0.109.0
 uvicorn[standard]>=0.31.1
@@ -79,3 +80,4 @@ black==23.12.1
 flake8==7.0.0
 mypy==1.8.0
 isort==5.13.2
+# made with bob

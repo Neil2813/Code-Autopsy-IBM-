@@ -1,3 +1,4 @@
+# for IBM hackathon
 # MCP (Model Context Protocol) Layer
 
 ## Overview
@@ -307,3 +308,4 @@ The MCP layer integrates with:
 **Last Updated**: 2026-05-02  
 **Status**: MVP Mock Implementation  
 **Next Steps**: Implement real vector search and storage
+# made with bob
