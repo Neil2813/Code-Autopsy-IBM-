@@ -10,6 +10,11 @@
 
 # Keep .gitignore itself
 !.gitignore
+!README.md
+!BOBandWatsonX.md
+!bob_task_history.json
+!Task History/
+!IBM BOB report/
 
 # Standard Python ignores for Backend/
 Backend/__pycache__/
