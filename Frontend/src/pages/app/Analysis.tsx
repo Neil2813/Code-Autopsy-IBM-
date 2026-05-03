@@ -778,7 +778,7 @@ const Analysis = () => {
                                   <span className="text-sm font-semibold">{cleanRiskTitle(r.title)}</span>
                                   </div>
 
-                                  <div className="space-y-4 p-4">
+                                  <div className="max-h-[900px] overflow-y-auto p-4 space-y-4 custom-scrollbar">
                                     <div className="grid gap-4 md:grid-cols-2">
                                       {r.description && (
                                         <div className="space-y-1">
@@ -797,18 +797,17 @@ const Analysis = () => {
                                     {sortedInstances.length ? (
                                       <div className="space-y-2">
                                         <h4 className="text-sm font-medium text-muted-foreground">Affected instances</h4>
-                                        <ScrollArea className="max-h-72 rounded-md border">
-                                          <div className="divide-y divide-border/50">
+                                        <div className="rounded-md border bg-zinc-950/20 p-1">
                                             {sortedInstances.map((ref: any, instanceIndex: number) => {
                                               const instanceSnippet = ref?.snippet || ref?.code_snippet || "";
                                               return (
-                                                <div key={`${filePath}-${r.risk_id || r.title}-instance-${ref?.line_start || "x"}-${instanceIndex}`} className="grid gap-2 p-3 md:grid-cols-[120px_1fr]">
-                                                  <div className="font-mono text-xs text-muted-foreground">
+                                                <div key={`${filePath}-${r.risk_id || r.title}-instance-${ref?.line_start || "x"}-${instanceIndex}`} className="grid gap-1.5 p-2 md:grid-cols-[100px_1fr]">
+                                                  <div className="font-mono text-[10px] text-muted-foreground pt-1">
                                                     Line {ref?.line_start ?? "-"}
                                                     {ref?.line_end && ref.line_end !== ref.line_start ? `-${ref.line_end}` : ""}
                                                   </div>
                                                   {instanceSnippet ? (
-                                                    <pre className="overflow-x-auto rounded-md bg-zinc-950 px-3 py-2 text-xs text-zinc-50">
+                                                    <pre className="w-full overflow-x-auto rounded bg-zinc-950 px-2 py-1.5 text-[10px] text-zinc-50 leading-tight">
                                                       <code>{instanceSnippet}</code>
                                                     </pre>
                                                   ) : (
@@ -818,9 +817,8 @@ const Analysis = () => {
                                               );
                                             })}
                                           </div>
-                                        </ScrollArea>
-                                      </div>
-                                    ) : null}
+                                        </div>
+                                      ) : null}
                                   </div>
                                   </CardContent>
                                 </Card>
@@ -915,7 +913,7 @@ const Analysis = () => {
                                       <span className="text-sm font-semibold">{s.title}</span>
                                     </div>
 
-                                    <div className="p-4 space-y-3">
+                                    <div className="max-h-[500px] overflow-y-auto p-4 space-y-3 custom-scrollbar">
                                       {/* Code snippet if available */}
                                       {s.code_snippet && (
                                         <div className="rounded-md bg-zinc-950 p-3 overflow-x-auto">
@@ -962,7 +960,7 @@ const Analysis = () => {
                       File references were reconstructed from architecture entry points, risk references, and suggestion context to give us a usable map even when the backend does not return a full inventory tree yet.
                     </p>
                     <ScrollArea className="h-[420px] rounded-md border">
-                      <div className="p-3">
+                      <div className="p-3 pr-6">
                         <FileTree nodes={fileTree} />
                       </div>
                     </ScrollArea>
@@ -1006,8 +1004,8 @@ const Analysis = () => {
                             <div>Relationship</div>
                             <div>Target</div>
                           </div>
-                          <ScrollArea className="max-h-72">
-                            <div className="divide-y divide-border/70">
+                          <ScrollArea className="max-h-96">
+                            <div className="divide-y divide-border/70 pr-3">
                               {dependencyOverview.edges.slice(0, 80).map((edge: any, index: number) => (
                                 <div key={`${edge.from}-${edge.to}-${index}`} className="grid grid-cols-[1.2fr_130px_1.2fr] items-center gap-3 px-3 py-2 text-sm">
                                   <div className="flex min-w-0 items-center gap-2">
