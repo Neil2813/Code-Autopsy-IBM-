@@ -15,6 +15,7 @@
 !bob_task_history.json
 !Task History/
 !IBM BOB report/
+!bob_sessions/
 
 # Standard Python ignores for Backend/
 Backend/__pycache__/
