@@ -122,6 +122,9 @@ async def get_dashboard_stats(
             "avg_risk_score": avg_risk_score,  # Estimate from persisted risks
             "lines_analyzed": lines_analyzed,  # From persisted file data
             "hours_saved": hours_saved,  # Rough estimate (4 hrs/job)
+            "hours_saved_estimate": hours_saved,
+            "calculation_basis": "Estimated 4 hours saved per completed analysis (manual analysis baseline)",
+            "completed_jobs_count": len(completed_jobs) if completed_jobs else 0,
         }
         
     except Exception as e:

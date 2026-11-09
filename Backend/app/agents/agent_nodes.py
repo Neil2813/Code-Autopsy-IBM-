@@ -360,31 +360,31 @@ def _split_java_equality_operands(line: str) -> tuple[str, str]:
     return left, right
 
 
-def _java_string_equality_text(left: str, right: str) -> tuple[str, str, str]:
-    compared = f"{left} == {right}".strip()
+def _java_string_equality_text(left: str, right: str, op: str = "==") -> tuple[str, str, str]:
+    compared = f"{left} {op} {right}".strip()
     literal_side = right if re.fullmatch(r'"(?:\\.|[^"\\])*"', right) else left
     expression_side = left if literal_side == right else right
     literal_value = literal_side.strip('"')
 
-    title = "String content compared with =="
+    title = f"String content compared with {op} (JLS §15.21.3)"
     if literal_value == "":
-        title = "Empty text compared with =="
-        description = f"`{expression_side}` is compared to an empty string with `==`, so the branch depends on object identity instead of the actual text value."
-        fix = f"Use `{expression_side}.isEmpty()` or `{expression_side}.equals(\"\")` after any needed null check."
+        title = f"Empty string compared with {op} (JLS §15.21.3)"
+        description = f"`{expression_side}` is compared to an empty string using `{op}`. According to Java Language Specification §15.21.3, `{op}` tests object reference identity instead of string value content, so identical text will evaluate unexpectedly if they are different String instances."
+        fix = f"Use `{expression_side}.isEmpty()` or `\"\".equals({expression_side})` after null-checking `{expression_side}`."
     elif ".getText()" in compared:
-        title = "UI text compared with =="
-        description = f"UI text from `{expression_side}` is compared using `==`, so equal text can be missed when Java creates a different String object."
+        title = f"UI text compared with {op} (JLS §15.21.3)"
+        description = f"UI text from `{expression_side}` is compared using `{op}`. Under JLS §15.21.3, `{op}` checks reference identity; GUI components return a new String object whose memory address will never match a literal."
         if literal_value == "":
-            fix = f"Use `{expression_side}.isEmpty()` after any needed null check, or use `Objects.equals({expression_side}, \"\")`."
+            fix = f"Use `{expression_side}.isEmpty()` or `Objects.equals({expression_side}, \"\")`."
         else:
             fix = f"Use `{literal_side}.equals({expression_side})` or `Objects.equals({expression_side}, {literal_side})`."
     elif "getSelectedItem()" in compared:
-        title = "Selected item text compared with =="
-        description = f"The selected item expression `{expression_side}` is compared with `==`, which checks object identity rather than the selected text value."
-        fix = f"Convert the selected item to a String and compare with `.equals`, for example `{literal_side}.equals(String.valueOf({expression_side}))`."
+        title = f"Selected item compared with {op} (JLS §15.21.3)"
+        description = f"The combo box selection `{expression_side}` is compared with `{op}` (JLS §15.21.3). JLS reference comparison checks object pointer equality rather than selected item value."
+        fix = f"Use `{literal_side}.equals(String.valueOf({expression_side}))` or `{expression_side}.toString().equals({literal_side})`."
     else:
-        description = f"`{compared}` uses `==` on string-like values, so the condition can be false even when both sides contain the same characters."
-        fix = f"Replace this comparison with `.equals` or `Objects.equals`, using the literal/constant side first when one side may be null."
+        description = f"`{left}` and `{right}` are compared using `{op}`. According to JLS §15.21.3 (Reference Equality Operators == and !=), `{op}` tests whether both operands refer to the same object in heap memory, NOT whether they contain the same characters. This produces subtle, intermittent bugs."
+        fix = f"Use `{left}.equals({right})` or `java.util.Objects.equals({left}, {right})` to perform character-by-character value equality."
 
     return title, description, fix
 
@@ -421,19 +421,49 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
     for line_number, line in enumerate(lines, 1):
         stripped = line.strip()
 
-        raw_match = re.search(r"\b(?:List|ArrayList|Map|HashMap|Set|HashSet)\s+([A-Za-z_]\w*)\s*=", line)
-        if raw_match and "<" not in line:
+        # JLS §4.8: Raw collection types
+        raw_match = re.search(r"\b(?:List|ArrayList|Map|HashMap|Set|HashSet|Vector|Hashtable|LinkedList)\s+([A-Za-z_]\w*)\s*=", line)
+        if raw_match and "<" not in line.split("=")[0]:
             raw_collections.add(raw_match.group(1))
             issues.append({
-                "title": "Raw collection type used",
-                "description": "Collection declared without generics, which weakens type safety and makes runtime casting errors more likely.",
+                "title": "Raw collection type used (JLS §4.8)",
+                "description": "Collection is declared as a raw type without generic type parameters. According to Java Language Specification §4.8, raw types bypass compile-time type safety and introduce runtime ClassCastException risks.",
                 "category": "type_safety",
                 "level": "medium",
                 "pattern_key": "raw_collection_type",
+                "jls_reference": "JLS §4.8",
                 "recommendation": "Replace raw collections with parameterized types such as List<String> or Map<Key, Value>.",
-                "confidence": 0.88,
+                "confidence": 0.9,
                 "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number, radius=0))],
             })
+
+        # JLS §14.20.3: Resource leak - AutoCloseable streams/readers/writers not in try-with-resources
+        resource_alloc = re.search(
+            r"\b(?:new\s+(?:FileInputStream|FileOutputStream|ObjectInputStream|ObjectOutputStream|"
+            r"FileReader|FileWriter|BufferedReader|BufferedWriter|PrintWriter|Scanner|ZipInputStream|ZipOutputStream)|"
+            r"(?:DriverManager\.getConnection|dataSource\.getConnection))\s*\(",
+            stripped,
+        )
+        if resource_alloc:
+            is_try_with_resources = "try (" in stripped or "try(" in stripped
+            if not is_try_with_resources and line_number > 1:
+                prev_line = lines[line_number - 2].strip()
+                if "try (" in prev_line or "try(" in prev_line:
+                    is_try_with_resources = True
+
+            if not is_try_with_resources:
+                matched_class = resource_alloc.group(0).replace("new", "").replace("(", "").strip()
+                issues.append({
+                    "title": f"Resource leak: {matched_class} not managed with try-with-resources (JLS §14.20.3)",
+                    "description": f"`{matched_class}` implements `java.lang.AutoCloseable`. According to Java Language Specification §14.20.3, allocating resources without try-with-resources risks descriptor and handle leaks if an exception occurs before manual `.close()` executes.",
+                    "category": "reliability",
+                    "level": "high",
+                    "pattern_key": "resource_leak",
+                    "jls_reference": "JLS §14.20.3",
+                    "recommendation": f"Enclose `{matched_class}` in a try-with-resources block: `try ({matched_class} res = new {matched_class}(...)) {{ ... }}` to guarantee automatic deterministic closure.",
+                    "confidence": 0.94,
+                    "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
+                })
 
         add_match = re.search(r"\b([A-Za-z_]\w*)\.add\s*\((.*)\)\s*;", stripped)
         if add_match:
@@ -450,8 +480,9 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
             data["lines"].append(line_number)
             data["snippets"].append(stripped)
 
-        comparison_pairs = re.findall(r"([^!=<>]+)==([^!=<>]+)", _strip_inline_comment(line))
-        for left_raw, right_raw in comparison_pairs:
+        # JLS §15.21.3: Reference equality comparison using == or !=
+        comparison_pairs = re.findall(r"([^!=<>]+)(==|!=)([^!=<>]+)", _strip_inline_comment(line))
+        for left_raw, op, right_raw in comparison_pairs:
             left = left_raw.strip()
             right = right_raw.strip()
             if left == "null" or right == "null":
@@ -461,27 +492,30 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
             right_string_like = _java_side_is_string_expression(right, string_variables)
 
             if left_string_like or right_string_like:
-                title, description, recommendation = _java_string_equality_text(left, right)
+                title, description, recommendation = _java_string_equality_text(left, right, op)
                 issues.append({
                     "title": title,
                     "description": description,
                     "category": "logic_bug",
                     "level": "high",
                     "pattern_key": "string_equality",
+                    "jls_reference": "JLS §15.21.3",
                     "recommendation": recommendation,
-                    "confidence": 0.8,
+                    "confidence": 0.95,
                     "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
                 })
                 break
 
+        # JLS §10.4 / §14.14: Off-by-one loop bound
         if re.search(r"for\s*\([^;]*;\s*\w+\s*<=\s*[\w.]+(?:\.size\(\)|\.length)\s*;", line):
             issues.append({
-                "title": "Possible off-by-one loop bound",
-                "description": "Loop condition uses <= against a collection size or array length, which can produce an IndexOutOfBoundsException on the last iteration.",
+                "title": "Off-by-one loop condition (JLS §10.4 / §14.14)",
+                "description": "Loop condition uses <= against collection size() or array length. Java arrays and lists are 0-indexed (JLS §10.4), so index size() throws IndexOutOfBoundsException on the final iteration.",
                 "category": "runtime_safety",
                 "level": "high",
                 "pattern_key": "off_by_one_loop",
-                "recommendation": "Use < when iterating up to size() or length, unless the code intentionally handles the terminal index.",
+                "jls_reference": "JLS §10.4 / §14.14",
+                "recommendation": "Use < when iterating up to size() or length, or use an enhanced for-each loop (JLS §14.14.2).",
                 "confidence": 0.94,
                 "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
             })
@@ -505,13 +539,14 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
                 target = concat_match.group(1) if concat_match else "the accumulated string"
                 value = concat_match.group(2) if concat_match else "the appended value"
                 issues.append({
-                    "title": "String concatenation inside loop",
-                    "description": "Repeated string concatenation inside a loop can devolve into quadratic-time behavior and create unnecessary allocations.",
+                    "title": "String concatenation inside loop (JLS §15.18.1)",
+                    "description": "Repeated string concatenation inside a loop allocates new String and StringBuilder instances on every iteration (JLS §15.18.1), leading to O(N^2) quadratic memory and performance overhead.",
                     "category": "performance",
                     "level": "medium",
                     "pattern_key": "string_concat_loop",
+                    "jls_reference": "JLS §15.18.1",
                     "recommendation": f"Create a StringBuilder before the loop and replace this update with builder.append({value.strip()}). Convert it back with {target}.toString() after the loop.",
-                    "confidence": 0.78,
+                    "confidence": 0.85,
                     "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
                 })
 
@@ -568,6 +603,7 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
                 "affected_files": [_make_file_reference(file_path, first_line, max(data["lines"]), "\n".join(data["snippets"]))],
             })
 
+    # JLS §8.4: Recursion guard check (only flag truly unguarded infinite recursion)
     for method_match in re.finditer(r"(?:public|private|protected)?\s*(?:static\s+)?[\w<>\[\]]+\s+(\w+)\s*\([^)]*\)\s*\{", content):
         method_name = method_match.group(1)
         body_start = method_match.end()
@@ -582,39 +618,53 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
         body = content[body_start:pos - 1]
         call_match = re.search(rf"\b{re.escape(method_name)}\s*\(", body)
         if call_match:
-            prefix = body[:call_match.start()]
-            has_base_return = bool(re.search(r"\bif\s*\([^)]*\)\s*\{?\s*return\b", prefix, flags=re.DOTALL))
-        else:
-            has_base_return = False
-        if call_match and not has_base_return:
-            line_number = content[:body_start + call_match.start()].count("\n") + 1
-            issues.append({
-                "title": "Recursive call without base case",
-                "description": "The method calls itself before any visible base-case guard, which can exhaust the stack.",
-                "category": "runtime_safety",
-                "level": "high",
-                "pattern_key": "unguarded_recursion",
-                "recommendation": f"Add a base-case return before calling {method_name}() recursively.",
-                "confidence": 0.78,
-                "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
-            })
+            # Check if there is ANY branching/termination guard in the method (if, while, for, switch, return)
+            has_guard = bool(re.search(r"\b(if|while|for|switch)\b", body))
+            if not has_guard:
+                line_number = content[:body_start + call_match.start()].count("\n") + 1
+                issues.append({
+                    "title": "Unguarded recursive call (JLS §8.4)",
+                    "description": f"The method `{method_name}` calls itself unconditionally with no branching or base-case guard, leading to StackOverflowError at runtime.",
+                    "category": "runtime_safety",
+                    "level": "high",
+                    "pattern_key": "unguarded_recursion",
+                    "jls_reference": "JLS §8.4",
+                    "recommendation": f"Add a base-case termination condition before calling `{method_name}()` recursively.",
+                    "confidence": 0.9,
+                    "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
+                })
 
+    # JLS §11.3: Exception handling & swallowed exceptions
     for match in re.finditer(r"catch\s*\([^)]+\)\s*\{(?P<body>.*?)\}", content, flags=re.MULTILINE | re.DOTALL):
-        catch_body = re.sub(r"//.*?$|/\*.*?\*/", "", match.group("body"), flags=re.MULTILINE | re.DOTALL).strip()
-        if catch_body:
-            continue
+        catch_body = match.group("body")
+        catch_body_clean = re.sub(r"//.*?$|/\*.*?\*/", "", catch_body, flags=re.MULTILINE | re.DOTALL).strip()
         line_number = content[: match.start()].count("\n") + 1
         snippet = match.group(0).replace("\n", " ").strip()
-        issues.append({
-            "title": "Empty catch block",
-            "description": "Exception is swallowed without logging, handling, or rethrowing, which makes production failures hard to diagnose and can hide bad state.",
-            "category": "error_handling",
-            "level": "high",
-            "pattern_key": "empty_catch",
-            "recommendation": "Log the exception with context or rethrow it after cleanup so failures remain observable.",
-            "confidence": 0.96,
-            "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number) or snippet)],
-        })
+        
+        if not catch_body_clean:
+            issues.append({
+                "title": "Empty catch block: Swallowed exception (JLS §11.3)",
+                "description": "Exception is swallowed without logging, handling, or rethrowing. According to Java Language Specification §11.3, unhandled exceptions indicate abnormal program execution; silently swallowing them hides corrupted state and causes silent failures.",
+                "category": "error_handling",
+                "level": "high",
+                "pattern_key": "empty_catch",
+                "jls_reference": "JLS §11.3",
+                "recommendation": "Log the exception with context or rethrow it after cleanup so failures remain observable.",
+                "confidence": 0.96,
+                "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number) or snippet)],
+            })
+        elif re.search(r'logger\.\w+\s*\([^,]+,\s*["\']\s*\+\s*\w+\s*\)', catch_body_clean):
+            issues.append({
+                "title": "Exception stack trace lost in logger (JLS §11.3)",
+                "description": "Exception is concatenated into a String (e.g. \"\" + e), which discards the entire Throwable stack trace and root cause. JLS §11.3 specifies preserving the exception cause for diagnosability.",
+                "category": "error_handling",
+                "level": "medium",
+                "pattern_key": "lost_stack_trace",
+                "jls_reference": "JLS §11.3",
+                "recommendation": "Pass the Throwable instance as the last argument to the logger: logger.log(Level.SEVERE, \"Operation failed\", e);",
+                "confidence": 0.92,
+                "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number) or snippet)],
+            })
 
     class_count = len(re.findall(r"\bclass\s+\w+", content))
     static_methods = len(re.findall(r"\bstatic\b", content))
@@ -1190,6 +1240,51 @@ async def analyze_node(state: AgentState) -> AgentState:
         entry_points: List[str] = []
         all_risks: List[Dict[str, Any]] = []
         code_smells: List[Dict[str, Any]] = []
+
+        # Convert ParsedFile dicts back to ParseResult for DependencyAnalyzer
+        try:
+            from app.analyzers.dependency_analyzer import DependencyAnalyzer
+            from app.parsers.base_parser import ParseResult, CodeNode, NodeType
+            
+            parse_results = []
+            for pf in parsed_files:
+                nodes = []
+                for nd in pf.get("nodes", []):
+                    try:
+                        nodes.append(CodeNode(
+                            node_type=NodeType(nd["node_type"]),
+                            name=nd["name"],
+                            line_start=nd["line_start"],
+                            line_end=nd["line_end"],
+                            metadata=nd.get("metadata", {})
+                        ))
+                    except ValueError:
+                        pass
+                
+                parse_results.append(ParseResult(
+                    file_path=pf["file_path"],
+                    language=pf["language"],
+                    success=pf["parse_success"],
+                    nodes=nodes,
+                    imports=pf.get("imports", []),
+                    dependencies=pf.get("dependencies", [])
+                ))
+                
+            analyzer = DependencyAnalyzer()
+            analyzer.analyze(parse_results)
+            dead_code_risks = analyzer.detect_dead_code(parse_results)
+            
+            # Format the dead code risks to match the state's risk schema
+            for dc in dead_code_risks:
+                dc["job_id"] = state["job_id"]
+                dc["risk_id"] = f"risk_{uuid.uuid4().hex[:12]}"
+                dc["pattern_key"] = "dead-code"
+                dc["line_numbers"] = [ref["line_start"] for ref in dc.get("affected_files", []) if "line_start" in ref]
+                all_risks.append(dc)
+                
+            logger.info(f"Added {len(dead_code_risks)} dead code risks")
+        except Exception as e:
+            logger.warning(f"Failed to run dead code detection: {e}")
 
         # Get LLM provider chain
         provider_chain = get_llm_chain()

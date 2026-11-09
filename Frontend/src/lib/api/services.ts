@@ -84,10 +84,10 @@ export const uploadService = {
     return response;
   },
 
-  uploadRepository: async (repositoryUrl: string, branch = "main", projectName?: string) => {
+  uploadRepository: async (repositoryUrl: string, branch?: string, projectName?: string) => {
     const response = await apiClient.post<UploadResponse>(apiPath("/upload/repository"), {
       repository_url: repositoryUrl,
-      branch,
+      branch: branch?.trim() || undefined,
     }, {
       timeout: 0,
     });
@@ -227,4 +227,52 @@ export const reportService = {
   },
 
   download: (reportId: string) => apiClient.get(apiPath(`/report/${reportId}/download`), { responseType: "blob" }),
+};
+
+// ─── Bob Features (high-impact demo endpoints) ─────────────────────
+export const bobService = {
+  /** Stateless code explanation — no job required */
+  explain: (code: string, language = "auto") =>
+    apiClient.post<{ explanation: string; language: string; provider: string }>(
+      apiPath("/explain"),
+      { code, language },
+    ),
+
+  /** New-developer onboarding brief */
+  onboarding: (jobId: string) =>
+    apiClient.get<{ job_id: string; onboarding_brief: Record<string, unknown>; provider: string }>(
+      apiPath(`/jobs/${jobId}/onboarding`),
+    ),
+
+  /** Auto-generated Mermaid architecture diagram */
+  diagram: (jobId: string) =>
+    apiClient.get<{ job_id: string; diagram_type: string; diagram: string; node_count: number; risky_nodes: number }>(
+      apiPath(`/jobs/${jobId}/diagram`),
+    ),
+
+  /** Migration readiness composite score */
+  migrationScore: (jobId: string) =>
+    apiClient.get<{
+      overall_score: number;
+      sub_scores: Record<string, number>;
+      grade: string;
+      summary: string;
+      top_blockers: string[];
+    }>(apiPath(`/jobs/${jobId}/migration-score`)),
+
+  /** Side-by-side code transformation preview */
+  transform: (jobId: string, filePath: string, suggestionId?: string) =>
+    apiClient.post<{
+      job_id: string;
+      file_path: string;
+      language: string;
+      transform: { before_snippet: string; after_snippet: string; changes_summary: string[]; target_language: string };
+      provider: string;
+    }>(apiPath(`/jobs/${jobId}/transform`), {
+      file_path: filePath,
+      suggestion_id: suggestionId,
+    }),
+
+  /** SSE stream URL for live progress (use with EventSource) */
+  streamUrl: (jobId: string) => `${getApiBaseUrl()}${apiPath(`/jobs/${jobId}/stream`)}`,
 };

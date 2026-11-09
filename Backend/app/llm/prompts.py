@@ -48,12 +48,24 @@ Keep the explanation practical and focused on understanding the code's behavior.
         # Count lines for validation
         line_count = code.count('\n') + 1
         
+        java_spec_instructions = ""
+        if str(language).lower() == "java":
+            java_spec_instructions = """
+JAVA LANGUAGE SPECIFICATION (JLS SE 8) RULES TO ENFORCE:
+- Reference Equality (JLS §15.21.3): Strings and boxed reference types must be compared with .equals() or Objects.equals(), never == or !=.
+- Resource Management (JLS §14.20.3): Classes implementing AutoCloseable (streams, readers, writers, JDBC connections, statements) must be in try-with-resources.
+- Generics & Type Safety (JLS §4.8): Raw types (List, Map without <T>) violate type safety and must be parameterized.
+- String Performance (JLS §15.18.1): In loops, use StringBuilder instead of String concatenation (+ or +=).
+- Exception Handling (JLS §11.3): Never swallow exceptions in empty catch blocks; always preserve Throwable cause.
+- Unboxing (JLS §5.1.8): Ensure null checks before auto-unboxing wrapper types.
+"""
+
         return f"""You are a code analysis engine. Return ONLY valid JSON matching the exact schema below.
 
 FILE: {file_path}
 LANGUAGE: {language}
 LINES: 1-{line_count}
-
+{java_spec_instructions}
 STATIC ANALYSIS FINDINGS:
 {risks_summary}
 

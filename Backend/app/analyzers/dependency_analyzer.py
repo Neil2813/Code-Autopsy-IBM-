@@ -34,29 +34,102 @@ class DependencyAnalyzer:
         """
         self.nodes = {}
         self.edges = []
-        
+
         # Build nodes from files
         for result in parse_results:
             self._add_file_node(result)
-        
+
+        # Build symbol table ONCE — avoids O(n²) per-edge rebuild (§3.3)
+        symbol_table = self._build_symbol_table()
+
         # Build edges from dependencies
         for result in parse_results:
-            self._add_dependency_edges(result)
-        
+            self._add_dependency_edges(result, symbol_table)
+
         # Calculate metrics
         self._calculate_metrics()
-        
+
         graph = DependencyGraph(
             nodes=list(self.nodes.values()),
             edges=self.edges
         )
-        
+
         logger.info(
             f"Built dependency graph: {len(graph.nodes)} nodes, "
             f"{len(graph.edges)} edges"
         )
-        
+
         return graph
+
+    def detect_dead_code(self, parse_results: List[ParseResult]) -> List[Dict[str, Any]]:
+        """
+        §4.7 Dead Code Detection: identify functions/methods that are defined
+        but never called anywhere in the analyzed codebase.
+
+        Returns a list of risk-shaped dicts ready to be appended to state["risks"].
+        """
+        # Collect all defined symbol names
+        defined: Dict[str, Dict[str, Any]] = {}  # symbol -> {file_path, line}
+        for result in parse_results:
+            for node in result.nodes:
+                ntype = node.node_type.value.lower()
+                if ntype in ("function", "method", "procedure", "subroutine"):
+                    defined[node.name] = {
+                        "file_path": result.file_path,
+                        "line_start": node.line_start,
+                        "line_end": node.line_end,
+                    }
+
+        # Collect all call references from metadata
+        called: Set[str] = set()
+        for result in parse_results:
+            for node in result.nodes:
+                if node.metadata:
+                    for call in node.metadata.get("calls", []):
+                        # Strip class/module prefix for simple name match
+                        called.add(call.split(".")[-1])
+
+        # Entry-point names are exempt (never "called" by internal code)
+        incoming_targets = {edge.target for edge in self.edges}
+        entry_point_files = {
+            node.file_path for nid, node in self.nodes.items()
+            if nid not in incoming_targets
+        }
+
+        dead: List[Dict[str, Any]] = []
+        for symbol, info in defined.items():
+            if symbol in called:
+                continue
+            if info["file_path"] in entry_point_files:
+                continue
+            # Common main-like names are exempt
+            if symbol.lower() in ("main", "init", "setup", "teardown", "run"):
+                continue
+            dead.append({
+                "title": f"Dead code: `{symbol}` defined but never called",
+                "description": (
+                    f"The function/method `{symbol}` in `{info['file_path']}` "
+                    "is defined but has no detected callers within this codebase. "
+                    "It may be safely removed or is unreachable legacy code."
+                ),
+                "severity": "low",
+                "category": "maintainability",
+                "affected_files": [{
+                    "file_path": info["file_path"],
+                    "line_start": info["line_start"],
+                    "line_end": info["line_end"],
+                    "snippet": symbol,
+                }],
+                "recommendation": (
+                    f"Verify `{symbol}` is not called via reflection or dynamic dispatch "
+                    "before deleting. If truly unused, remove it to reduce maintenance surface."
+                ),
+                "confidence": 0.65,
+                "mcp_solution_available": False,
+            })
+
+        logger.info(f"Dead code detection: {len(dead)} unused symbols found")
+        return dead
     
     def _add_file_node(self, parse_result: ParseResult) -> None:
         """Add a file as a node in the dependency graph."""
@@ -82,67 +155,59 @@ class DependencyAnalyzer:
         
         self.nodes[node_id] = node
     
-    def _add_dependency_edges(self, parse_result: ParseResult) -> None:
+    def _add_dependency_edges(self, parse_result: ParseResult, symbol_table: Dict[str, str]) -> None:
         """
         Add dependency edges from a file to its dependencies.
-        
-        Uses parsed imports and dependencies for accurate edge creation.
+
+        Accepts a pre-built symbol_table to avoid O(n²) rebuilds (§3.3).
         """
         source_id = self._get_node_id(parse_result.file_path)
-        
-        # Track unique dependencies to avoid duplicate edges
         seen_targets: Set[str] = set()
-        
-        # Process parsed imports (more reliable than dependencies list)
+
+        def _resolve(dep: str) -> Optional[str]:
+            """Resolve a dependency name to a node ID using the shared symbol table."""
+            if not dep:
+                return None
+            if dep in symbol_table:
+                return symbol_table[dep]
+            parts = dep.split(".")
+            for i in range(len(parts)):
+                partial = ".".join(parts[i:])
+                if partial in symbol_table:
+                    return symbol_table[partial]
+            if parts:
+                simple = parts[-1]
+                if simple in symbol_table:
+                    return symbol_table[simple]
+            # Fallback: path substring match
+            for node_id, node in self.nodes.items():
+                if dep in node.file_path:
+                    return node_id
+                norm_dep = dep.replace(".", "/")
+                if norm_dep in node.file_path.replace("\\", "/"):
+                    return node_id
+            return None
+
         for imp in parse_result.imports:
-            target_id = self._find_dependency_node(imp)
-            
+            target_id = _resolve(imp)
             if target_id and target_id != source_id and target_id not in seen_targets:
-                edge = DependencyEdge(
-                    source=source_id,
-                    target=target_id,
-                    type="imports",
-                    weight=1.0
-                )
-                self.edges.append(edge)
+                self.edges.append(DependencyEdge(source=source_id, target=target_id, type="imports", weight=1.0))
                 seen_targets.add(target_id)
-        
-        # Process explicit dependencies (from COBOL COPY, JCL EXEC, etc.)
+
         for dep in parse_result.dependencies:
-            target_id = self._find_dependency_node(dep)
-            
+            target_id = _resolve(dep)
             if target_id and target_id != source_id and target_id not in seen_targets:
-                # Determine edge type based on dependency nature
-                edge_type = "depends_on"
-                if any(keyword in dep.lower() for keyword in ['copy', 'include']):
-                    edge_type = "includes"
-                elif any(keyword in dep.lower() for keyword in ['call', 'exec']):
-                    edge_type = "calls"
-                
-                edge = DependencyEdge(
-                    source=source_id,
-                    target=target_id,
-                    type=edge_type,
-                    weight=1.0
-                )
-                self.edges.append(edge)
+                edge_type = "includes" if any(k in dep.lower() for k in ("copy", "include")) else \
+                            "calls" if any(k in dep.lower() for k in ("call", "exec")) else "depends_on"
+                self.edges.append(DependencyEdge(source=source_id, target=target_id, type=edge_type, weight=1.0))
                 seen_targets.add(target_id)
-        
-        # Extract dependencies from parsed nodes (method calls, class references)
+
         for node in parse_result.nodes:
             if node.metadata:
-                # Process method calls
-                calls = node.metadata.get('calls', [])
-                for call in calls:
-                    target_id = self._find_dependency_node(call)
+                for call in node.metadata.get("calls", []):
+                    target_id = _resolve(call)
                     if target_id and target_id != source_id and target_id not in seen_targets:
-                        edge = DependencyEdge(
-                            source=source_id,
-                            target=target_id,
-                            type="calls",
-                            weight=0.5  # Lower weight for method-level dependencies
-                        )
-                        self.edges.append(edge)
+                        self.edges.append(DependencyEdge(source=source_id, target=target_id, type="calls", weight=0.5))
                         seen_targets.add(target_id)
     
     def _determine_node_type(self, parse_result: ParseResult) -> str:
@@ -188,45 +253,26 @@ class DependencyAnalyzer:
     
     def _find_dependency_node(self, dependency: str) -> Optional[str]:
         """
-        Find a node ID that matches the dependency using symbol resolution.
-        
-        Uses proper package/module resolution instead of substring matching.
+        Kept for external callers. Internally, _add_dependency_edges now
+        uses the shared symbol table built once in analyze() (§3.3).
         """
         if not dependency:
             return None
-        
-        # Build symbol table for lookup
         symbol_table = self._build_symbol_table()
-        
-        # Try exact symbol match first
         if dependency in symbol_table:
             return symbol_table[dependency]
-        
-        # Try package-qualified match
-        parts = dependency.split('.')
+        parts = dependency.split(".")
         for i in range(len(parts)):
-            partial_name = '.'.join(parts[i:])
-            if partial_name in symbol_table:
-                return symbol_table[partial_name]
-        
-        # Try class/module name match (last component)
-        if parts:
-            simple_name = parts[-1]
-            if simple_name in symbol_table:
-                return symbol_table[simple_name]
-        
-        # Try file path match as fallback
+            partial = ".".join(parts[i:])
+            if partial in symbol_table:
+                return symbol_table[partial]
+        if parts and parts[-1] in symbol_table:
+            return symbol_table[parts[-1]]
         for node_id, node in self.nodes.items():
-            # Match by file path components
             if dependency in node.file_path:
                 return node_id
-            
-            # Match by normalized names
-            normalized_dep = dependency.replace('.', '/').replace('\\', '/')
-            normalized_path = node.file_path.replace('\\', '/')
-            if normalized_dep in normalized_path:
+            if dependency.replace(".", "/") in node.file_path.replace("\\", "/"):
                 return node_id
-        
         return None
     
     def _build_symbol_table(self) -> Dict[str, str]:

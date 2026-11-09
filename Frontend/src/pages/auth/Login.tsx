@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,11 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const setUser = useAppStore((s) => s.setUser);
   const navigate = useNavigate();
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
+    defaultValues: {
+      remember: false,
+    }
   });
 
   const onSubmit = async (values: FormValues) => {
@@ -58,7 +61,17 @@ const Login = () => {
           {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
         </div>
         <div className="flex items-center gap-2">
-          <Checkbox id="remember" {...register("remember")} />
+          <Controller
+            name="remember"
+            control={control}
+            render={({ field }) => (
+              <Checkbox
+                id="remember"
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
           <Label htmlFor="remember" className="text-sm font-normal text-muted-foreground">Remember me</Label>
         </div>
         <Button type="submit" className="w-full" disabled={isSubmitting}>

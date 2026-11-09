@@ -173,45 +173,60 @@ class MCPClient:
         Returns:
             MCPSearchResult with matching solutions
         """
-        if not self.enabled or self.mock_mode:
-            logger.debug("MCP disabled or in mock mode, returning empty results")
-            return MCPSearchResult(
-                solutions=[],
-                total_count=0,
-                query=query,
-                search_time_ms=0.0,
-                next_offset=None,
-                search_method="mock"
-            )
-        
         start_time = datetime.utcnow()
-        
+
         try:
-            # TODO: Implement actual MCP search with vector similarity
-            # Real implementation would:
-            # 1. Convert code_snippet to embedding vector
-            # 2. Perform similarity search in vector database
-            # 3. Filter by metadata (language, framework, etc.)
-            # 4. Rank by confidence and success rate
-            logger.info(f"Searching MCP for solutions: {query.dict()}")
-            
-            # Placeholder for real search
-            solutions = []
-            
+            if not self.enabled:
+                logger.debug("MCP disabled, returning empty results")
+                return MCPSearchResult(
+                    solutions=[], total_count=0, query=query,
+                    search_time_ms=0.0, next_offset=None, search_method="disabled"
+                )
+
+            # §2.7: Provide realistic mock MCP results if in mock mode for the hackathon
+            if self.mock_mode:
+                logger.info(f"MCP mock mode: Returning realistic solutions for query: {query.dict()}")
+                import uuid
+                mock_solution = MCPSolution(
+                    solution_id=f"ibm-mcp-{uuid.uuid4().hex[:8]}",
+                    violation=MCPViolation(
+                        violation_name="Unsafe COBOL to Java Translation",
+                        category="modernization",
+                        severity="high",
+                        description="Legacy fixed-position string parsing mapped to unsafe substrings without boundary checks."
+                    ),
+                    original_code="MOVE CUSTOMER-RECORD(15:20) TO OUT-NAME.",
+                    updated_code="outName = StringUtils.safeSubstring(customerRecord, 15, 35);",
+                    diff="@@ -1 +1 @@\n-MOVE CUSTOMER-RECORD(15:20) TO OUT-NAME.\n+outName = StringUtils.safeSubstring(customerRecord, 15, 35);",
+                    source="ibm_legacy_modernization_corpus",
+                    author="IBM Bob AI",
+                    explanation="Replaces fixed-position extraction with safe boundary-checked substring utility from IBM legacy package.",
+                    language="java",
+                    framework_to="spring-boot",
+                    tags=["cobol-to-java", "string-manipulation", "safety"],
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                solutions = [mock_solution]
+            else:
+                # Real implementation placeholder
+                logger.info(f"Searching real MCP for solutions: {query.dict()}")
+                solutions = []
+
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
-            
+
             result = MCPSearchResult(
                 solutions=solutions,
                 total_count=len(solutions),
                 query=query,
                 search_time_ms=elapsed_ms,
                 next_offset=None,
-                search_method="vector"
+                search_method="mock" if self.mock_mode else "vector"
             )
-            
+
             logger.info(f"Found {len(solutions)} solutions in {elapsed_ms:.2f}ms")
             return result
-            
+
         except Exception as e:
             logger.error(f"MCP search failed: {e}", exc_info=True)
             # Return empty results on error rather than failing

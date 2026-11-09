@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  FileCode,
   FileText,
   FolderTree,
   GitBranch,
@@ -247,6 +248,9 @@ const deriveStringRisk = (risk: any, filePath?: string) => {
 };
 
 const displayRiskForFile = (risk: any, filePath?: string) => {
+  if (risk?.jls_reference || (risk?.title && risk.title.includes("JLS"))) {
+    return risk;
+  }
   const title = cleanRiskTitle(risk?.title).toLowerCase();
   const category = String(risk?.category || "").toLowerCase();
   const line = comparisonLine(getRiskSnippet(risk, filePath));
@@ -756,70 +760,127 @@ const Analysis = () => {
                               const sortedInstances = instances
                                 .filter((ref: any) => ref?.line_start || ref?.snippet || ref?.code_snippet)
                                 .sort((a: any, b: any) => (a.line_start || 0) - (b.line_start || 0));
+                              const jlsMatch = (r.title || "").match(/JLS\s*§[\d.]+(\s*\/\s*§[\d.]+)?/i) || 
+                                               (r.description || "").match(/JLS\s*§[\d.]+(\s*\/\s*§[\d.]+)?/i);
+                              const jlsTag = r.jls_reference || (jlsMatch ? jlsMatch[0] : null);
+
                               return (
                                 <Card
                                   key={`${filePath}-${r.risk_id || r.title}-${lineNum ?? "no-line"}-${r._idx}-${riskIndex}`}
-                                  className="overflow-hidden border-l-4 border-l-primary"
+                                  className="overflow-hidden border-l-4 border-l-primary shadow-sm hover:shadow-md transition-all"
                                 >
                                   <CardContent className="p-0">
-                                    <div className="bg-muted/50 px-4 py-2 flex flex-col gap-2 border-b sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="bg-muted/40 px-4 py-3 flex flex-col gap-2 border-b sm:flex-row sm:items-center sm:justify-between">
                                       <div className="flex flex-wrap items-center gap-2">
-                                  <Badge className={`text-[10px] px-1.5 py-0 shrink-0 ${severityColor[r.severity] || severityColor.info}`}>
-                                    {(r.severity || "?").toUpperCase()}
-                                  </Badge>
-                                  <span className="hidden">
-                                    {lineNum !== null ? `L${lineNum}` : "—"}
-                                  </span>
-                                  <Badge variant="secondary" className="text-xs">{toTitle(r.category || "general")}</Badge>
-                                  <Badge variant="outline" className="text-xs">
-                                    {sortedInstances.length || 1} instance{(sortedInstances.length || 1) > 1 ? "s" : ""}
-                                  </Badge>
-                                  </div>
-                                  <span className="text-sm font-semibold">{cleanRiskTitle(r.title)}</span>
-                                  </div>
+                                        <Badge className={`text-[10px] px-2 py-0.5 font-bold uppercase shrink-0 ${severityColor[r.severity] || severityColor.info}`}>
+                                          {(r.severity || "?").toUpperCase()}
+                                        </Badge>
+                                        {lineNum !== null && (
+                                          <Badge variant="outline" className="text-xs font-mono font-semibold bg-primary/10 text-primary border-primary/30 flex items-center gap-1 px-2 py-0.5">
+                                            <FileCode className="h-3 w-3" />
+                                            Line {lineNum}
+                                          </Badge>
+                                        )}
+                                        <Badge variant="secondary" className="text-xs font-medium">{toTitle(r.category || "general")}</Badge>
+                                        {jlsTag && (
+                                          <Badge variant="outline" className="text-[10px] font-mono font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 px-1.5 py-0.5">
+                                            {jlsTag}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <span className="text-sm font-semibold tracking-tight text-foreground">{cleanRiskTitle(r.title)}</span>
+                                    </div>
 
-                                  <div className="max-h-[900px] overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                                    <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="p-4 space-y-4">
+                                      {/* Exact Problem Callout */}
                                       {r.description && (
-                                        <div className="space-y-1">
-                                          <h4 className="text-sm font-medium text-muted-foreground">Risk</h4>
-                                          <p className="text-sm text-muted-foreground leading-relaxed">{r.description}</p>
+                                        <div className="rounded-xl border border-red-500/25 bg-red-500/5 p-4 space-y-1.5">
+                                          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 font-sans">
+                                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                                            <span>Exact Problem {jlsTag ? `• ${jlsTag}` : ""}</span>
+                                          </div>
+                                          <p className="text-sm text-foreground/90 leading-relaxed font-sans font-medium">
+                                            {r.description}
+                                          </p>
                                         </div>
                                       )}
+
+                                      {/* Code Instances with Line Numbers & Highlighting */}
+                                      {sortedInstances.length > 0 && (
+                                        <div className="space-y-3">
+                                          <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                                            <span className="flex items-center gap-1.5 font-mono text-foreground">
+                                              <FileCode className="h-3.5 w-3.5 text-primary" />
+                                              {filePath} {lineNum !== null ? `(Line ${lineNum})` : ""}
+                                            </span>
+                                            <span className="text-[11px] px-2 py-0.5 rounded bg-muted/80 text-muted-foreground font-mono">
+                                              {sortedInstances.length} instance{sortedInstances.length > 1 ? "s" : ""}
+                                            </span>
+                                          </div>
+
+                                          {sortedInstances.map((ref: any, instanceIndex: number) => {
+                                            const rawSnippet = String(ref?.snippet || ref?.code_snippet || "").trim();
+                                            const targetLineStart = ref?.line_start ?? lineNum ?? 1;
+                                            const snippetLines = rawSnippet ? rawSnippet.split(/\r?\n/) : [];
+
+                                            return (
+                                              <div key={`${filePath}-${r.risk_id || r.title}-inst-${targetLineStart}-${instanceIndex}`} className="space-y-1">
+                                                <div className="rounded-xl border border-border/80 bg-zinc-950 p-3 font-mono text-xs overflow-x-auto shadow-inner">
+                                                  {snippetLines.length > 0 ? (
+                                                    <div className="space-y-0.5">
+                                                      {snippetLines.map((lineText: string, lIdx: number) => {
+                                                        const curL = targetLineStart + lIdx;
+                                                        const isProblemLine = lineText.includes("==") || lineText.includes("!=") || 
+                                                                             lineText.includes("new FileOutput") || lineText.includes("new ObjectOutput") ||
+                                                                             (snippetLines.length === 1);
+                                                        return (
+                                                          <div
+                                                            key={lIdx}
+                                                            className={`flex items-start gap-2.5 px-2 py-1 rounded transition-colors ${
+                                                              isProblemLine
+                                                                ? "bg-red-500/20 border-l-2 border-red-500 text-red-100 font-semibold"
+                                                                : "text-zinc-400 hover:text-zinc-200"
+                                                            }`}
+                                                          >
+                                                            <span className="select-none text-zinc-600 text-[11px] w-9 text-right shrink-0">
+                                                              {curL}
+                                                            </span>
+                                                            <span className="select-none text-red-400 font-bold shrink-0 w-3">
+                                                              {isProblemLine ? "▶" : " "}
+                                                            </span>
+                                                            <code className="flex-1 whitespace-pre">{lineText}</code>
+                                                            {isProblemLine && (
+                                                              <span className="ml-2 select-none text-[10px] px-1.5 py-0.5 rounded bg-red-500/30 text-red-300 font-sans font-bold shrink-0">
+                                                                Problem Line
+                                                              </span>
+                                                            )}
+                                                          </div>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                  ) : (
+                                                    <span className="text-zinc-500 text-xs italic">Line {targetLineStart} (No snippet preview available)</span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+
+                                      {/* Exact Java Specification Fix */}
                                       {r.recommendation && (
-                                        <div className="space-y-1">
-                                          <h4 className="text-sm font-medium text-muted-foreground">Fix</h4>
-                                          <p className="text-sm text-muted-foreground leading-relaxed">{r.recommendation}</p>
+                                        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 space-y-1.5">
+                                          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-sans">
+                                            <Sparkles className="h-4 w-4 shrink-0" />
+                                            <span>Java Specification Solution</span>
+                                          </div>
+                                          <p className="text-sm text-foreground/90 leading-relaxed font-sans font-medium">
+                                            {r.recommendation}
+                                          </p>
                                         </div>
                                       )}
                                     </div>
-
-                                    {sortedInstances.length ? (
-                                      <div className="space-y-2">
-                                        <h4 className="text-sm font-medium text-muted-foreground">Affected instances</h4>
-                                        <div className="rounded-md border bg-zinc-950/20 p-1">
-                                            {sortedInstances.map((ref: any, instanceIndex: number) => {
-                                              const instanceSnippet = ref?.snippet || ref?.code_snippet || "";
-                                              return (
-                                                <div key={`${filePath}-${r.risk_id || r.title}-instance-${ref?.line_start || "x"}-${instanceIndex}`} className="grid gap-1.5 p-2 md:grid-cols-[100px_1fr]">
-                                                  <div className="font-mono text-[10px] text-muted-foreground pt-1">
-                                                    Line {ref?.line_start ?? "-"}
-                                                    {ref?.line_end && ref.line_end !== ref.line_start ? `-${ref.line_end}` : ""}
-                                                  </div>
-                                                  {instanceSnippet ? (
-                                                    <pre className="w-full overflow-x-auto rounded bg-zinc-950 px-2 py-1.5 text-[10px] text-zinc-50 leading-tight">
-                                                      <code>{instanceSnippet}</code>
-                                                    </pre>
-                                                  ) : (
-                                                    <span className="text-sm text-muted-foreground">No snippet returned for this instance.</span>
-                                                  )}
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      ) : null}
-                                  </div>
                                   </CardContent>
                                 </Card>
                               );

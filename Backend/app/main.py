@@ -174,7 +174,7 @@ app.add_middleware(
 )
 
 # Include API routers
-from app.api.v1 import analyze, code_review, dashboard, jobs, query, report, upload
+from app.api.v1 import analyze, bob_features, code_review, dashboard, jobs, query, report, upload
 
 app.include_router(upload.router, prefix="/api/v1", tags=["Upload"])
 app.include_router(analyze.router, prefix="/api/v1", tags=["Analysis"])
@@ -183,6 +183,7 @@ app.include_router(query.router, prefix="/api/v1", tags=["Query"])
 app.include_router(report.router, prefix="/api/v1", tags=["Report"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 app.include_router(code_review.router, prefix="/api/v1", tags=["Code Review"])
+app.include_router(bob_features.router, prefix="/api/v1", tags=["Bob Features"])
 
 
 @app.get("/")

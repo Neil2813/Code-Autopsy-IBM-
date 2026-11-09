@@ -54,49 +54,24 @@ class ComplexityAnalyzer:
         
         return metrics
     
-    def _calculate_cyclomatic_complexity(self, content: str) -> int:
-        """
-        Calculate cyclomatic complexity using parsed structure.
-        
-        Cyclomatic complexity = number of decision points + 1
-        Falls back to regex-based counting if parse data unavailable.
-        """
-        # Count decision points from content (fallback method)
-        decision_keywords = [
-            r'\bif\b', r'\belse\s+if\b', r'\belif\b', r'\bwhile\b',
-            r'\bfor\b', r'\bcase\b', r'\bcatch\b', r'\b&&\b', r'\band\b',
-            r'\b\|\|\b', r'\bor\b', r'\b\?\s*:', r'\bwhen\b'
-        ]
-        
-        complexity = 1  # Base complexity
-        
-        for keyword in decision_keywords:
-            matches = re.findall(keyword, content, re.IGNORECASE)
-            complexity += len(matches)
-        
-        return complexity
-    
     def _calculate_cyclomatic_from_nodes(self, parse_result: ParseResult) -> int:
         """
         Calculate cyclomatic complexity from parsed nodes.
-        
+
         More accurate than regex-based approach.
         """
         complexity = 1  # Base complexity
-        
+
         for node in parse_result.nodes:
-            # Count decision points in each node
             if node.complexity:
                 complexity += node.complexity
-        
-        # If no node-level complexity, fall back to counting control structures
+
         if complexity == 1 and parse_result.nodes:
             for node in parse_result.nodes:
                 node_type = node.node_type.value.lower()
-                # Count control flow structures
                 if node_type in ['if', 'while', 'for', 'case', 'catch', 'when']:
                     complexity += 1
-        
+
         return max(1, complexity)
     
     def _calculate_cognitive_complexity(self, content: str) -> int:
@@ -127,29 +102,29 @@ class ComplexityAnalyzer:
             cognitive += len(re.findall(r'\b(and|or)\b', stripped, re.IGNORECASE))
         
         return cognitive
-    
+
     def _calculate_cognitive_from_nodes(self, parse_result: ParseResult, content: str) -> int:
         """
         Calculate cognitive complexity from parsed nodes.
-        
+
         Uses node structure to accurately measure cognitive load.
         Falls back to regex method if nodes don't provide enough info.
         """
         if not parse_result.nodes:
             return self._calculate_cognitive_complexity(content)
-        
+
         cognitive = 0
-        
+
         # Calculate cognitive complexity based on node nesting and control flow
         for node in parse_result.nodes:
             node_type = node.node_type.value.lower()
-            
+
             # Control flow structures increase cognitive load
             if node_type in ['if', 'while', 'for', 'switch', 'case', 'catch', 'when']:
                 # Add base complexity plus nesting penalty
                 nesting_penalty = self._get_node_nesting_level(node, parse_result.nodes)
                 cognitive += (1 + nesting_penalty)
-            
+
             # Recursion and callbacks add cognitive load
             if node_type in ['function', 'method'] and node.metadata:
                 if node.metadata.get('is_recursive'):

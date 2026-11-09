@@ -19,6 +19,7 @@ const Upload = () => {
   const [projectName, setProjectName] = useState("");
   const [description, setDescription] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
+  const [repoBranch, setRepoBranch] = useState("");
   const [snippet, setSnippet] = useState("");
   const [language, setLanguage] = useState("java");
 
@@ -38,7 +39,7 @@ const Upload = () => {
 
   const repoMutation = useMutation({
     mutationFn: async () => {
-      const res = await uploadService.uploadRepository(repoUrl, "main", projectName);
+      const res = await uploadService.uploadRepository(repoUrl, repoBranch.trim() || undefined, projectName);
       await analysisService.start(res.data.job_id);
       return res;
     },
@@ -193,15 +194,27 @@ const Upload = () => {
           </TabsContent>
 
           <TabsContent value="repo" className="mt-6 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="repo" className="text-[10px] font-bold tracking-widest text-muted-foreground/60 uppercase font-sans">Git repository URL</Label>
-              <Input 
-                id="repo" 
-                value={repoUrl} 
-                onChange={(e) => setRepoUrl(e.target.value)} 
-                placeholder="https://github.com/org/repo.git" 
-                className="h-12 bg-muted/20 border-border/50 focus-visible:ring-primary/50 text-sm font-sans"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2 space-y-2">
+                <Label htmlFor="repo" className="text-[10px] font-bold tracking-widest text-muted-foreground/60 uppercase font-sans">Git repository URL</Label>
+                <Input 
+                  id="repo" 
+                  value={repoUrl} 
+                  onChange={(e) => setRepoUrl(e.target.value)} 
+                  placeholder="https://github.com/org/repo.git" 
+                  className="h-12 bg-muted/20 border-border/50 focus-visible:ring-primary/50 text-sm font-sans"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="branch" className="text-[10px] font-bold tracking-widest text-muted-foreground/60 uppercase font-sans">Branch (optional)</Label>
+                <Input 
+                  id="branch" 
+                  value={repoBranch} 
+                  onChange={(e) => setRepoBranch(e.target.value)} 
+                  placeholder="default (HEAD)" 
+                  className="h-12 bg-muted/20 border-border/50 focus-visible:ring-primary/50 text-sm font-sans"
+                />
+              </div>
             </div>
             <Button 
               size="lg"

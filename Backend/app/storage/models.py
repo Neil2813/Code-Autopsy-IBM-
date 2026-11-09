@@ -72,6 +72,7 @@ class AnalysisResult(Base):
     result_type = Column(String(50), nullable=False)  # summary, dependency_graph, etc.
     content = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     job = relationship("Job", back_populates="analysis_results")

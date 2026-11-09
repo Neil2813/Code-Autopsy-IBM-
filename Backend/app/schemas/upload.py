@@ -36,7 +36,7 @@ class RepositoryUploadRequest(BaseModel):
     """Request schema for repository URL upload."""
 
     repository_url: HttpUrl = Field(..., description="Git repository URL")
-    branch: Optional[str] = Field("main", description="Branch name")
+    branch: Optional[str] = Field(None, description="Branch name (optional, defaults to repository default branch)")
     subdirectory: Optional[str] = Field(None, description="Subdirectory to analyze")
     include_patterns: Optional[List[str]] = Field(
         None, description="File patterns to include (e.g., ['*.java', '*.xml'])"

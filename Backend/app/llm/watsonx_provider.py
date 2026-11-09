@@ -142,9 +142,13 @@ class WatsonxProvider(BaseLLMProvider):
             # Update model parameters
             self.model_instance.params = gen_params
             
-            # Generate response
+            # Generate response (IBM WML SDK is synchronous — run in thread pool)
             logger.info(f"Generating with watsonx.ai model: {self.model}")
-            response = self.model_instance.generate_text(prompt=full_prompt)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, lambda: self.model_instance.generate_text(prompt=full_prompt)
+            )
             
             # Extract content and initialize token counts
             tokens_used = 0

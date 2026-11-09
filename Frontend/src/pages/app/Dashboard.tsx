@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { analysisService, dashboardService } from "@/lib/api/services";
+import { analysisService, dashboardService, bobService } from "@/lib/api/services";
 import { cn } from "@/lib/utils";
 
 const Sparkline = ({ data, color = "#3b82f6" }: { data: any[]; color?: string }) => (
@@ -41,6 +41,15 @@ const Dashboard = () => {
   const recent = useQuery({
     queryKey: ["recent-jobs"],
     queryFn: async () => (await analysisService.listJobs({ limit: 5 })).data,
+    retry: false,
+  });
+
+  // Fetch migration score for the most recent completed job
+  const latestJobId = recent.data?.jobs?.find((j: any) => j.status === "completed")?.id;
+  const migrationScore = useQuery({
+    queryKey: ["migration-score", latestJobId],
+    queryFn: async () => (await bobService.migrationScore(latestJobId!)).data,
+    enabled: !!latestJobId,
     retry: false,
   });
 
@@ -79,12 +88,17 @@ const Dashboard = () => {
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">
-          Welcome, {user?.name?.split(" ")[0] ?? "Neil"}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            Enterprise Copilot
+          </Badge>
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground font-heading">
+          Welcome back, {user?.name?.split(" ")[0] ?? "Neil"}
         </h1>
-        <p className="text-muted-foreground">
-          Welcome' the 'Code Autopsy' Legacy Copilot on desktop.
+        <p className="text-sm text-muted-foreground font-sans">
+          Enterprise legacy modernization, automated risk diagnostics, and architectural refactoring.
         </p>
       </div>
 
@@ -101,6 +115,46 @@ const Dashboard = () => {
           </Card>
         ))}
       </div>
+
+      {/* Migration Readiness Score */}
+      {migrationScore.data && (
+        <Card className="border-none shadow-sm ring-1 ring-border/50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold tracking-tight">Migration Readiness</h2>
+                <p className="text-sm text-muted-foreground">{migrationScore.data.summary}</p>
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="relative h-20 w-20 flex items-center justify-center">
+                  <svg className="absolute h-20 w-20 -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/20" />
+                    <circle cx="18" cy="18" r="15" fill="none" stroke="url(#scoreGrad)" strokeWidth="3" strokeDasharray={`${migrationScore.data.overall_score * 0.94} 94`} strokeLinecap="round" />
+                    <defs><linearGradient id="scoreGrad"><stop offset="0%" stopColor="#3b82f6" /><stop offset="100%" stopColor="#6366f1" /></linearGradient></defs>
+                  </svg>
+                  <span className="text-2xl font-bold">{migrationScore.data.overall_score}</span>
+                </div>
+                <Badge variant="secondary" className="mt-1 font-mono">Grade {migrationScore.data.grade}</Badge>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-5 gap-2">
+              {Object.entries(migrationScore.data.sub_scores).map(([key, val]) => (
+                <div key={key} className="text-center">
+                  <div className="text-xs text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</div>
+                  <div className="text-sm font-semibold">{String(val)}</div>
+                </div>
+              ))}
+            </div>
+            {migrationScore.data.top_blockers.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {migrationScore.data.top_blockers.map((b: string, i: number) => (
+                  <Badge key={i} variant="outline" className="text-xs font-normal">{b}</Badge>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
@@ -166,30 +220,39 @@ const Dashboard = () => {
         <div className="space-y-4">
           <h2 className="text-xl font-semibold tracking-tight">Quick actions</h2>
           <div className="space-y-3">
-            <Button asChild variant="outline" className="w-full justify-between h-14 px-6 text-base font-medium shadow-sm hover:bg-accent group transition-all duration-200">
+            <Button asChild variant="outline" className="w-full justify-between h-14 px-5 text-sm font-medium shadow-sm border-border/60 hover:bg-muted/60 group transition-all duration-200 rounded-xl">
               <Link to="/upload">
                 <div className="flex items-center gap-3">
-                  <span>Upload code</span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Upload className="h-4 w-4" />
+                  </div>
+                  <span className="font-semibold text-foreground">Upload codebase</span>
                 </div>
-                <ChevronRight className="h-4 w-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </Link>
             </Button>
             
-            <Button asChild variant="outline" className="w-full justify-between h-14 px-6 text-base font-medium shadow-sm hover:bg-accent group transition-all duration-200">
+            <Button asChild variant="outline" className="w-full justify-between h-14 px-5 text-sm font-medium shadow-sm border-border/60 hover:bg-muted/60 group transition-all duration-200 rounded-xl">
               <Link to="/history">
                 <div className="flex items-center gap-3">
-                  <span>View history</span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500">
+                    <Clock className="h-4 w-4" />
+                  </div>
+                  <span className="font-semibold text-foreground">Audit history</span>
                 </div>
-                <ChevronRight className="h-4 w-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </Link>
             </Button>
             
-            <Button asChild variant="outline" className="w-full justify-between h-14 px-6 text-base font-medium shadow-sm hover:bg-accent group transition-all duration-200">
+            <Button asChild variant="outline" className="w-full justify-between h-14 px-5 text-sm font-medium shadow-sm border-border/60 hover:bg-muted/60 group transition-all duration-200 rounded-xl">
               <Link to="/docs">
                 <div className="flex items-center gap-3">
-                  <span>Read docs</span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
+                    <BookOpen className="h-4 w-4" />
+                  </div>
+                  <span className="font-semibold text-foreground">Documentation</span>
                 </div>
-                <ChevronRight className="h-4 w-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
               </Link>
             </Button>
           </div>

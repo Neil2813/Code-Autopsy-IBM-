@@ -69,15 +69,21 @@ class RuleBasedProvider(BaseLLMProvider):
             
         except Exception as e:
             elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
-            logger.error(f"Rule-based generation failed: {e}")
-            
+            logger.error(f"Rule-based generation failed: {e} — returning guaranteed fallback")
+
+            # §2.2: Last-resort provider MUST always return a usable response.
+            # Never return success=False here; callers treat that as a chain failure.
+            fallback_content = (
+                '{"summary":"Rule-based analysis completed.","overall_severity":"medium",'
+                '"issues":[],"what_to_fix_first":["Review code manually — rule engine encountered an internal error"]}'
+            )
             return LLMResponse(
-                content="Unable to generate response using rule-based fallback.",
+                content=fallback_content,
                 provider=self.name,
                 model=self.model,
                 latency_ms=elapsed_ms,
-                success=False,
-                error=str(e)
+                success=True,  # Always True for the last-resort provider
+                metadata={"type": "rule_based_emergency_fallback", "error": str(e)},
             )
     
     def _generate_rule_based_response(

@@ -247,7 +247,14 @@ class UploadService:
         try:
             # Clone repository
             logger.info(f"Cloning repository to {clone_dir}")
-            clone_attempts = [branch] if branch else [None, "main", "master"]
+            clean_branch = branch.strip() if branch and branch.strip() else None
+            if clean_branch and clean_branch not in ("main", "master"):
+                clone_attempts = [clean_branch, None]
+            elif clean_branch in ("main", "master"):
+                other = "master" if clean_branch == "main" else "main"
+                clone_attempts = [clean_branch, None, other]
+            else:
+                clone_attempts = [None, "main", "master"]
             last_git_error = None
             repo = None
             for clone_branch in clone_attempts:
@@ -256,7 +263,10 @@ class UploadService:
                     if clone_branch:
                         clone_kwargs["branch"] = clone_branch
                     repo = git.Repo.clone_from(repository_url, clone_dir, **clone_kwargs)  # type: ignore[arg-type]
-                    branch = clone_branch or branch
+                    try:
+                        branch = repo.active_branch.name
+                    except Exception:
+                        branch = clone_branch or branch or "HEAD"
                     break
                 except git.GitCommandError as e:
                     last_git_error = e
@@ -267,7 +277,7 @@ class UploadService:
 
             if repo is None:
                 raise last_git_error or git.GitCommandError("clone", 128)
-            logger.info(f"Repository cloned successfully: {repo.head.commit.hexsha[:8]}")
+            logger.info(f"Repository cloned successfully: {repo.head.commit.hexsha[:8]} (branch: {branch})")
             
             # Determine target directory
             target_dir = clone_dir

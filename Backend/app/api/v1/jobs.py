@@ -317,12 +317,21 @@ async def get_job_results(
                     line_end = line_end or first_ref.get("line_end") or line_start
                     code_snippet = code_snippet or first_ref.get("snippet") or first_ref.get("code_snippet")
 
+            jls_ref = None
+            if "(JLS" in (r.title or ""):
+                m = re.search(r"\(JLS\s*[^)]+\)", r.title)
+                if m:
+                    jls_ref = m.group(0).strip("()")
+            elif isinstance(affected_files, list) and affected_files and isinstance(affected_files[0], dict):
+                jls_ref = affected_files[0].get("jls_reference")
+
             risks_data.append({
                 "risk_id": r.risk_id,
                 "title": r.title,
                 "description": r.description or "",
                 "severity": str(r.level) if r.level is not None else "unknown",
                 "category": r.category or "general",
+                "jls_reference": jls_ref,
                 "affected_files": affected_files,
                 "recommendation": r.recommendation or "",
                 "line_start": line_start,

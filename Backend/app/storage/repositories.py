@@ -281,17 +281,18 @@ class RiskRepository:
     def get_risks_by_job(
         self,
         job_id: str,
-        severity: Optional[SeverityEnum] = None
+        severity: Optional[SeverityEnum] = None,
+        limit: int = 200,
+        offset: int = 0,
     ) -> List[Risk]:
-        """Get risks for a job, optionally filtered by severity."""
+        """Get risks for a job, optionally filtered by severity, with pagination."""
         query = self.db.query(Risk).filter(Risk.job_id == job_id)
         if severity:
             query = query.filter(Risk.level == severity.value)
-        
-        # Fetch all risks and sort by severity rank (handle string values)
+
         risks = query.all()
         risks.sort(key=lambda r: SEVERITY_RANK.get(str(r.level).lower() if r.level is not None else "", 0), reverse=True)
-        return risks
+        return risks[offset:offset + limit]
     
     def get_critical_risks(self, job_id: str) -> List[Risk]:
         """Get critical and high severity risks."""
@@ -330,29 +331,40 @@ class SuggestionRepository:
         logger.info(f"Created {len(suggestions)} suggestion records")
         return suggestions
     
-    def get_suggestions_by_job(self, job_id: str) -> List[Suggestion]:
-        """Get all suggestions for a job, ordered by priority rank."""
+    def get_suggestions_by_job(
+        self,
+        job_id: str,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Suggestion]:
+        """Get suggestions for a job, ordered by priority rank, with pagination."""
         suggestions = self.db.query(Suggestion).filter(
             Suggestion.job_id == job_id
         ).all()
-        
-        # Sort by priority rank (handle both integer and string priorities)
+
         def get_priority_rank(s):
             if isinstance(s.priority, int):
                 return s.priority
             return PRIORITY_RANK.get(str(s.priority).lower() if s.priority else "", 0)
-        
+
         suggestions.sort(key=get_priority_rank, reverse=True)
-        return suggestions
+        return suggestions[offset:offset + limit]
     
-    def get_high_priority_suggestions(self, job_id: str) -> List[Suggestion]:
-        """Get high priority suggestions."""
-        return self.db.query(Suggestion).filter(
-            and_(
-                Suggestion.job_id == job_id,
-                Suggestion.priority >= 8
-            )
+    def get_high_priority_suggestions(self, job_id: str, limit: int = 50, offset: int = 0) -> List[Suggestion]:
+        """Get high priority suggestions (priority >= 8 for int, or 'critical'/'high' for string)."""
+        all_suggestions = self.db.query(Suggestion).filter(
+            Suggestion.job_id == job_id
         ).all()
+        
+        # Filter in Python to handle mixed int/string priorities
+        high_priority = []
+        for s in all_suggestions:
+            if isinstance(s.priority, int) and s.priority >= 8:
+                high_priority.append(s)
+            elif isinstance(s.priority, str) and str(s.priority).lower() in ("critical", "high"):
+                high_priority.append(s)
+        
+        return high_priority[offset:offset + limit]
 
 
 class QueryRepository:
