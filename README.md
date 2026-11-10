@@ -285,6 +285,7 @@ npm run dev
 - **Frontend README:** [`Frontend/README.md`](Frontend/README.md) - Frontend setup and architecture
 - **IBM Bob Integration:** [`Backend/IBM_BOB_INTEGRATION.md`](Backend/IBM_BOB_INTEGRATION.md) - Detailed watsonx.ai integration
 - **Hackathon Submission:** [`Backend/HACKATHON_SUBMISSION.md`](Backend/HACKATHON_SUBMISSION.md) - Complete submission package
+- **AWS Deployment:** [`AWS_DEPLOYMENT.md`](AWS_DEPLOYMENT.md) - Least-effort AWS migration guide
 
 ### Technical Documentation
 - **Architecture Plan:** [`Backend/ARCHITECTURE_PLAN.md`](Backend/ARCHITECTURE_PLAN.md)
@@ -375,7 +376,7 @@ npm run dev
 ## 🔐 Security & Compliance
 
 - ✅ **API Key Management** - Secure credential storage
-- ✅ **Data Privacy** - Code never leaves IBM Cloud
+- ✅ **Data Privacy** - For AWS deployments, uploaded code and results may be stored in the AWS region you select; data sent to watsonx.ai is subject to your provider and application configuration
 - ✅ **Audit Logging** - Complete activity tracking
 - ✅ **Role-Based Access** - Fine-grained permissions
 - ✅ **SOC 2 Type II** - IBM watsonx.ai compliance

@@ -11,6 +11,11 @@
 # Keep .gitignore itself
 !.gitignore
 !README.md
+!/.gitattributes
+!/AWS_DEPLOYMENT.md
+!/docker-compose.production.yml
+!/deploy/
+!/deploy/**
 !BOBandWatsonX.md
 !bob_task_history.json
 !Task History/
