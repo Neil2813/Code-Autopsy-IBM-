@@ -18,6 +18,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from app.agents.java_compiler import detect_java_compiler_issues
 from app.agents.agent_state import (
     AgentState,
     FileInfo,
@@ -602,6 +603,31 @@ def _detect_java_issues(file_info: FileInfo) -> List[Dict[str, Any]]:
                 "confidence": 0.86,
                 "affected_files": [_make_file_reference(file_path, first_line, max(data["lines"]), "\n".join(data["snippets"]))],
             })
+
+    scanner_variables = set(re.findall(r"\bScanner\s+([A-Za-z_]\w*)\b", content))
+    for scanner_name in scanner_variables:
+        numeric_call_pattern = re.compile(
+            rf"\b{re.escape(scanner_name)}\.next(?:Int|Long|Double|Float|Boolean)\s*\(\s*\)"
+        )
+        next_line_pattern = re.compile(rf"\b{re.escape(scanner_name)}\.nextLine\s*\(")
+        for numeric_call in numeric_call_pattern.finditer(content):
+            following_text = content[numeric_call.end():]
+            next_line_call = next_line_pattern.search(following_text)
+            if next_line_call is None or following_text[:next_line_call.start()].count("\n") > 3:
+                continue
+
+            line_number = content[:numeric_call.end() + next_line_call.start()].count("\n") + 1
+            issues.append({
+                "title": "Scanner nextLine may consume an empty remainder",
+                "description": f"`{scanner_name}.nextLine()` follows a token-reading call on the same Scanner. The numeric read leaves the rest of the line buffered, so `nextLine()` may return an empty string instead of the next line of input.",
+                "category": "input_handling",
+                "level": "medium",
+                "pattern_key": "scanner_nextline_after_token_read",
+                "recommendation": f"Consume the pending line separator after `{scanner_name}.nextInt()` or use line-based input and parse the value explicitly.",
+                "confidence": 0.78,
+                "affected_files": [_make_file_reference(file_path, line_number, line_number, _context_snippet(lines, line_number))],
+            })
+            break
 
     # JLS §8.4: Recursion guard check (only flag truly unguarded infinite recursion)
     for method_match in re.finditer(r"(?:public|private|protected)?\s*(?:static\s+)?[\w<>\[\]]+\s+(\w+)\s*\([^)]*\)\s*\{", content):
@@ -1285,6 +1311,28 @@ async def analyze_node(state: AgentState) -> AgentState:
             logger.info(f"Added {len(dead_code_risks)} dead code risks")
         except Exception as e:
             logger.warning(f"Failed to run dead code detection: {e}")
+
+        java_compiler_issues = detect_java_compiler_issues(ingested_files)
+        for issue in java_compiler_issues:
+            code_smells.append(issue)
+            all_risks.append({
+                "job_id": state["job_id"],
+                "risk_id": f"risk_{uuid.uuid4().hex[:12]}",
+                "title": issue["title"],
+                "description": issue["description"],
+                "category": issue["category"],
+                "level": issue["level"],
+                "pattern_key": issue["pattern_key"],
+                "affected_files": issue["affected_files"],
+                "line_numbers": [
+                    ref["line_start"]
+                    for ref in issue["affected_files"]
+                    if ref.get("line_start") is not None
+                ],
+                "recommendation": issue["recommendation"],
+                "confidence": issue["confidence"],
+                "mcp_solution_available": False,
+            })
 
         # Get LLM provider chain
         provider_chain = get_llm_chain()

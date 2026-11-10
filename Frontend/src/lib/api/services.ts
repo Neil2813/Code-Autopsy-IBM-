@@ -132,7 +132,24 @@ export const analysisService = {
 
   cancelJob: (jobId: string) => apiClient.delete(apiPath(`/jobs/${jobId}`)),
 
+  clearJobs: () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(JOB_CACHE_KEY);
+    }
+  },
+
   listJobs: async ({ limit }: { limit?: number } = {}) => {
+    try {
+      const response = await apiClient.get<{ jobs: CachedJob[]; total: number }>(apiPath("/jobs"), {
+        params: typeof limit === "number" ? { limit } : undefined,
+      });
+      if (response.data && Array.isArray(response.data.jobs)) {
+        writeJobs(response.data.jobs);
+        return { data: { jobs: response.data.jobs } };
+      }
+    } catch {
+      // Fallback to local cache if offline
+    }
     const jobs = readJobs();
     return { data: { jobs: typeof limit === "number" ? jobs.slice(0, limit) : jobs } };
   },

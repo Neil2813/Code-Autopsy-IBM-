@@ -9,13 +9,15 @@ This module provides endpoints for:
 """
 
 import logging
-from typing import List, Dict, Any
+import re
+from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, Path, status, Depends, Response
+from fastapi import APIRouter, Path, Query, status, Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.schemas import ErrorResponse, JobResultResponse, JobStatusResponse
+from app.schemas.common import SeverityEnum
 from app.storage.database import get_db_session
 from app.storage.repositories import (
     get_job_repository,
@@ -49,6 +51,62 @@ SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0, "un
 
 def _max_severity(current: str, candidate: str) -> str:
     return candidate if SEVERITY_RANK.get(candidate, 0) > SEVERITY_RANK.get(current, 0) else current
+
+
+def _severity_value(value: Any) -> str:
+    severity = str(value).lower() if value is not None else "unknown"
+    return severity if severity in {item.value for item in SeverityEnum} else "unknown"
+
+
+@router.get(
+    "/jobs",
+    summary="List all analysis jobs",
+    description="List all past and current jobs directly from the database",
+    responses={
+        200: {"description": "Jobs retrieved successfully"},
+    },
+)
+async def list_jobs(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db_session)
+):
+    try:
+        job_repo = get_job_repository(db)
+        status_enum = None
+        if status and status != "all":
+            try:
+                status_enum = JobStatusEnum(status)
+            except Exception:
+                status_enum = None
+        jobs = job_repo.list_jobs(status=status_enum, limit=limit, offset=offset)
+        out = []
+        for job in jobs:
+            metadata = job.job_metadata or {}
+            project_name = metadata.get("project_name") or metadata.get("name")
+            if not project_name and job.files:
+                project_name = job.files[0].filename
+            if not project_name:
+                project_name = f"Analysis {job.id[:8]}"
+            languages = metadata.get("detected_languages") or []
+            if not languages and metadata.get("primary_language"):
+                languages = [metadata.get("primary_language")]
+            status_val = job.status.value if hasattr(job.status, "value") else str(job.status)
+            out.append({
+                "id": job.id,
+                "project_name": project_name,
+                "status": status_val,
+                "progress": float(job.progress) if job.progress is not None else 0.0,
+                "languages": languages,
+                "file_count": len(job.files) if job.files else 0,
+                "total_size_bytes": metadata.get("total_size_bytes", 0),
+                "created_at": job.created_at.isoformat() if job.created_at else None,
+            })
+        return {"jobs": out, "total": len(out)}
+    except Exception as e:
+        logger.error(f"Error listing jobs: {e}", exc_info=True)
+        return {"jobs": [], "total": 0}
 
 
 @router.get(
@@ -329,7 +387,7 @@ async def get_job_results(
                 "risk_id": r.risk_id,
                 "title": r.title,
                 "description": r.description or "",
-                "severity": str(r.level) if r.level is not None else "unknown",
+                "severity": _severity_value(r.level),
                 "category": r.category or "general",
                 "jls_reference": jls_ref,
                 "affected_files": affected_files,
@@ -364,7 +422,7 @@ async def get_job_results(
                     "risk_id": str(risk.get("risk_id") or f"analysis_{job_id}_{index}"),
                     "title": risk.get("title") or "Untitled Risk",
                     "description": risk.get("description") or "",
-                    "severity": str(risk.get("severity") or risk.get("level") or "unknown").lower(),
+                    "severity": _severity_value(risk.get("severity") or risk.get("level")),
                     "category": risk.get("category") or "general",
                     "affected_files": affected_files,
                     "recommendation": risk.get("recommendation") or "",

@@ -168,22 +168,9 @@ class RuleBasedProvider(BaseLLMProvider):
         import json
         
         response = {
-            "summary": "Rule-based analysis completed. Configure LLM provider for detailed insights.",
+            "summary": "Rule-based analysis did not produce specific risk findings. Configure an LLM provider for deeper review.",
             "overall_severity": "medium",
-            "issues": [
-                {
-                    "title": "Legacy Code Patterns Detected",
-                    "description": "Code follows older programming patterns that may benefit from modernization",
-                    "severity": "medium",
-                    "category": "maintainability",
-                    "file_path": "unknown",
-                    "line_start": 1,
-                    "line_end": 1,
-                    "code_snippet": "# Rule-based detection",
-                    "recommendation": "Review code for modern patterns and refactoring opportunities",
-                    "confidence": 0.5
-                }
-            ],
+            "issues": [],
             "what_to_fix_first": [
                 "Configure LLM provider for detailed analysis",
                 "Review static analysis findings",

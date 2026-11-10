@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Activity, BookOpen, Clock, FileCode, Plus, Upload, ChevronRight } from "lucide-react";
@@ -53,34 +54,49 @@ const Dashboard = () => {
     retry: false,
   });
 
-  // Mock data for sparklines
-  const sparklineData = [
-    { value: 10 }, { value: 15 }, { value: 8 }, { value: 12 }, { value: 18 }, { value: 25 }
-  ];
-  const sparklineDataAlt = [
-    { value: 20 }, { value: 18 }, { value: 22 }, { value: 15 }, { value: 16 }, { value: 17 }
-  ];
+  // When database has 0 jobs, purge any stale browser localStorage from old DB sessions
+  useEffect(() => {
+    if (stats.data && stats.data.analyses_this_month === 0 && (!recent.data?.jobs?.length)) {
+      analysisService.clearJobs?.();
+    }
+  }, [stats.data, recent.data]);
+
+  const hasActivity = Boolean(
+    (stats.data?.analyses_this_month && stats.data.analyses_this_month > 0) ||
+    (stats.data?.lines_analyzed && stats.data.lines_analyzed > 0)
+  );
+
+  const sparklineData = hasActivity
+    ? [ { value: 10 }, { value: 15 }, { value: 8 }, { value: 12 }, { value: 18 }, { value: 25 } ]
+    : [ { value: 0 }, { value: 0 }, { value: 0 }, { value: 0 }, { value: 0 }, { value: 0 } ];
+  const sparklineDataAlt = hasActivity
+    ? [ { value: 20 }, { value: 18 }, { value: 22 }, { value: 15 }, { value: 16 }, { value: 17 } ]
+    : [ { value: 0 }, { value: 0 }, { value: 0 }, { value: 0 }, { value: 0 }, { value: 0 } ];
 
   const cards = [
     { 
       label: "Analyses this month", 
-      value: stats.data?.analyses_this_month ?? "6", 
+      value: stats.data?.analyses_this_month ?? 0, 
       data: sparklineData 
     },
     { 
       label: "Average risk score", 
-      value: stats.data?.avg_risk_score ?? "5.5", 
+      value: (stats.data?.avg_risk_score !== null && stats.data?.avg_risk_score !== undefined) 
+        ? stats.data.avg_risk_score 
+        : 0, 
       data: sparklineDataAlt,
       color: "#6366f1"
     },
     { 
       label: "Lines analyzed", 
-      value: stats.data?.lines_analyzed?.toLocaleString() ?? "95,374", 
+      value: (stats.data?.lines_analyzed !== null && stats.data?.lines_analyzed !== undefined) 
+        ? stats.data.lines_analyzed.toLocaleString() 
+        : "0", 
       data: sparklineData 
     },
     { 
       label: "Hours saved", 
-      value: stats.data?.hours_saved ?? "16", 
+      value: stats.data?.hours_saved ?? 0, 
       data: sparklineData,
       color: "#3b82f6"
     },
@@ -196,20 +212,19 @@ const Dashboard = () => {
                       </tr>
                     ))
                   ) : (
-                    // Fallback to match image if no data
-                    ["Repo", "Bad Snippet J", "Bad Snippet Java", "Bad Snippet 45", "Bad Snippet COBOL"].map((name, i) => (
-                      <tr key={name} className="group hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-4 font-medium text-foreground">{name}</td>
-                        <td className="px-6 py-4">
-                          <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-50 font-medium px-2.5 py-0.5 rounded-full">
-                            Completed
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-muted-foreground text-sm">
-                          {8 + i * 4} days ago
-                        </td>
-                      </tr>
-                    ))
+                    <tr>
+                      <td colSpan={3} className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <p className="text-sm font-semibold text-foreground">No analyses yet</p>
+                          <p className="text-xs text-muted-foreground max-w-sm">
+                            Your audit and modernization history will appear here once you run your first analysis.
+                          </p>
+                          <Button asChild size="sm" className="mt-2 text-xs rounded-lg">
+                            <Link to="/upload">Start New Analysis</Link>
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>

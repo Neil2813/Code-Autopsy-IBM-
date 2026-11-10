@@ -59,6 +59,7 @@ class SeverityEnum(str, Enum):
     MEDIUM = "medium"
     LOW = "low"
     INFO = "info"
+    UNKNOWN = "unknown"
 
 
 class PriorityEnum(str, Enum):
