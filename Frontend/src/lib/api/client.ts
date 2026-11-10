@@ -3,7 +3,8 @@ import axios from "axios";
 const STORAGE_KEY = "ai-copilot-api-base";
 
 export const getApiBaseUrl = (): string => {
-  const envUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  const envUrl = import.meta.env.VITE_API_BASE_URL
+    || (typeof window !== "undefined" ? window.location.origin : "");
   if (typeof window === "undefined") return envUrl;
   return localStorage.getItem(STORAGE_KEY) || envUrl;
 };
