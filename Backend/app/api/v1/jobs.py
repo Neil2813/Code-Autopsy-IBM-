@@ -84,9 +84,14 @@ async def list_jobs(
         out = []
         for job in jobs:
             metadata = job.job_metadata or {}
-            project_name = metadata.get("project_name") or metadata.get("name")
+            project_name = (
+                metadata.get("project_name")
+                or metadata.get("name")
+                or metadata.get("original_filename")
+            )
             if not project_name and job.files:
-                project_name = job.files[0].filename
+                file_path = str(job.files[0].file_path or "")
+                project_name = file_path.replace("\\", "/").rsplit("/", 1)[-1] or None
             if not project_name:
                 project_name = f"Analysis {job.id[:8]}"
             languages = metadata.get("detected_languages") or []
@@ -106,7 +111,7 @@ async def list_jobs(
         return {"jobs": out, "total": len(out)}
     except Exception as e:
         logger.error(f"Error listing jobs: {e}", exc_info=True)
-        return {"jobs": [], "total": 0}
+        raise
 
 
 @router.get(
